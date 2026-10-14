@@ -63,8 +63,8 @@ export const Route = createFileRoute("/api/telephony/events")({
 
         const jobId = url.searchParams.get("job") ?? "";
         const kind = url.searchParams.get("kind") ?? "speech";
-        const callSid = params.CallSid ?? "unknown";
-        const eventType = kind === "speech" ? "speech" : (params.CallStatus ?? "status");
+        const callSid = params["CallSid"] ?? "unknown";
+        const eventType = kind === "speech" ? "speech" : (params["CallStatus"] ?? "status");
 
         if (!jobId) return Response.json({ ok: false, error: "missing job id" }, { status: 400 });
 
@@ -74,18 +74,18 @@ export const Route = createFileRoute("/api/telephony/events")({
 
         try {
           if (kind === "speech") {
-            const speech = (params.SpeechResult ?? "").trim();
+            const speech = (params["SpeechResult"] ?? "").trim();
             // No speech captured → treated as no answer (never safe).
             const result = await runner.applyCallResult(jobId, speech.length ? speech : null);
             return Response.json({ ok: true, ...result });
           }
           if (kind === "dtmf") {
             // Keypad answer: 1 = safe, 2 = worrying, 3 = danger. No digit → no answer.
-            const result = await runner.applyCallResult(jobId, dtmfToAnswer(params.Digits));
+            const result = await runner.applyCallResult(jobId, dtmfToAnswer(params["Digits"]));
             return Response.json({ ok: true, ...result });
           }
           // Status callbacks: only act on terminal failure states.
-          const status = (params.CallStatus ?? "").toLowerCase();
+          const status = (params["CallStatus"] ?? "").toLowerCase();
           if (["no-answer", "busy", "failed", "canceled"].includes(status)) {
             const result = await runner.applyCallResult(jobId, null);
             return Response.json({ ok: true, ...result });

@@ -65,7 +65,7 @@ function Enrol() {
   return (
     <div className="max-w-2xl space-y-6">
       <h1 className="text-3xl md:text-4xl">{t("enrol")}</h1>
-      <p className="rounded-md bg-warn-soft p-3 text-sm font-semibold text-warn">⚠ {t("notice")}</p>
+      <p className="rounded-md border bg-card p-3 text-sm text-muted-foreground">{t("notice")}</p>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field id="n" label={t("name")} value={f.display_name} onChange={(v) => setF({ ...f, display_name: v })} />
         <Field id="ref" label={t("reference")} value={f.reference_number} onChange={(v) => setF({ ...f, reference_number: v })} placeholder="EL-0001" />

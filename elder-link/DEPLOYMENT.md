@@ -21,6 +21,9 @@ Everything in the codebase is ready. The steps below need **your accounts** (Sup
    - Project URL
    - Publishable / anon key
    - Service role key (server-only, never expose)
+4. **Remove the demo seed rows before anyone sees the dashboard.** `0000` inserts
+   three fake elders (陳婆婆, 李伯伯, 黃太) with consent flags set `true`, which
+   look like real enrolments. Run `supabase/cleanup_demo_seed.sql` once.
 
 ## 2. Vercel (hosting)
 
@@ -53,10 +56,15 @@ Everything in the codebase is ready. The steps below need **your accounts** (Sup
 
 The scheduler endpoint is `POST /api/cron/tick` (also accepts `GET`). It needs to run **every minute** so that retries (5–10 min) and chain timeouts (2 min) work.
 
-**Option A — Vercel Cron (simplest).** `vercel.json` already contains a per-minute cron. Vercel **Hobby** only allows *daily* crons and will reject a per-minute schedule; **Pro** allows per-minute.
+**Option A — Vercel Cron (Pro plans).** Add this to `vercel.json`, then deploy:
 
-- On Pro: nothing else to do.
-- On Hobby: delete the `crons` block from `vercel.json`, deploy, and use Option B.
+```json
+"crons": [
+  { "path": "/api/cron/tick", "schedule": "* * * * *" }
+]
+```
+
+Vercel **Hobby** only allows *daily* crons and **rejects a per-minute schedule at deploy time**, so on Hobby use Option B instead. (The `crons` block was removed from `vercel.json` so the default deploy works on Hobby.)
 
 **Option B — external scheduler (free, works on any plan).** Create a job at [cron-job.org](https://cron-job.org) or a GitHub Actions schedule that calls:
 
@@ -66,6 +74,9 @@ Authorization: Bearer <CRON_SECRET>
 ```
 
 every minute. Both options are safe: the endpoint is idempotent and refuses calls without the secret.
+
+> Without a scheduler the app still works when a staff dashboard is open
+> (the browser advances due retries), but nothing runs while it is closed.
 
 ## 4. Verify after deploy
 

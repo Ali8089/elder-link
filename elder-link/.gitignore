@@ -39,3 +39,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+.vercel
+.env*
+
+# Supabase CLI scratch
+supabase/.temp/

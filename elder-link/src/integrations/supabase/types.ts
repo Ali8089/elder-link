@@ -14,6 +14,96 @@ export type Database = {
   }
   public: {
     Tables: {
+      activities: {
+        Row: {
+          active: boolean
+          code: string
+          en: string
+          id: string
+          zh: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          en: string
+          id?: string
+          zh: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          en?: string
+          id?: string
+          zh?: string
+        }
+        Relationships: []
+      }
+      activity_interests: {
+        Row: {
+          activity_code: string
+          call_job_id: string | null
+          created_at: string
+          elder_id: string
+          id: string
+          source: string
+        }
+        Insert: {
+          activity_code: string
+          call_job_id?: string | null
+          created_at?: string
+          elder_id: string
+          id?: string
+          source?: string
+        }
+        Update: {
+          activity_code?: string
+          call_job_id?: string | null
+          created_at?: string
+          elder_id?: string
+          id?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_interests_call_job_id_fkey"
+            columns: ["call_job_id"]
+            isOneToOne: false
+            referencedRelation: "call_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_interests_elder_id_fkey"
+            columns: ["elder_id"]
+            isOneToOne: false
+            referencedRelation: "elders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      analytics_events: {
+        Row: {
+          at: string
+          category: string
+          id: string
+          ref: string | null
+          value: number
+        }
+        Insert: {
+          at?: string
+          category: string
+          id?: string
+          ref?: string | null
+          value?: number
+        }
+        Update: {
+          at?: string
+          category?: string
+          id?: string
+          ref?: string | null
+          value?: number
+        }
+        Relationships: []
+      }
       audit_events: {
         Row: {
           action: string
@@ -106,6 +196,7 @@ export type Database = {
           severity: number
           status: string
           trigger_at: string
+          version: number
         }
         Insert: {
           acknowledged_at?: string | null
@@ -121,6 +212,7 @@ export type Database = {
           severity?: number
           status?: string
           trigger_at?: string
+          version?: number
         }
         Update: {
           acknowledged_at?: string | null
@@ -136,6 +228,7 @@ export type Database = {
           severity?: number
           status?: string
           trigger_at?: string
+          version?: number
         }
         Relationships: [
           {
@@ -191,7 +284,9 @@ export type Database = {
       }
       elders: {
         Row: {
+          centre: string
           check_interval_days: number
+          consent_checked_at: string | null
           consent_contact: boolean
           consent_elder: boolean
           consent_service: boolean
@@ -203,12 +298,16 @@ export type Database = {
           next_check_at: string | null
           opted_out_at: string | null
           phone: string
+          preferred_call_time: string
           preferred_language: string
+          reference_number: string
           status: string
           updated_at: string
         }
         Insert: {
+          centre?: string
           check_interval_days?: number
+          consent_checked_at?: string | null
           consent_contact?: boolean
           consent_elder?: boolean
           consent_service?: boolean
@@ -220,12 +319,16 @@ export type Database = {
           next_check_at?: string | null
           opted_out_at?: string | null
           phone?: string
+          preferred_call_time?: string
           preferred_language?: string
+          reference_number?: string
           status?: string
           updated_at?: string
         }
         Update: {
+          centre?: string
           check_interval_days?: number
+          consent_checked_at?: string | null
           consent_contact?: boolean
           consent_elder?: boolean
           consent_service?: boolean
@@ -237,7 +340,9 @@ export type Database = {
           next_check_at?: string | null
           opted_out_at?: string | null
           phone?: string
+          preferred_call_time?: string
           preferred_language?: string
+          reference_number?: string
           status?: string
           updated_at?: string
         }
@@ -284,6 +389,120 @@ export type Database = {
           },
         ]
       }
+      login_attempts: {
+        Row: {
+          email: string
+          fails: number
+          id: string
+          ip: string
+          locked_until: string | null
+          updated_at: string
+        }
+        Insert: {
+          email: string
+          fails?: number
+          id?: string
+          ip?: string
+          locked_until?: string | null
+          updated_at?: string
+        }
+        Update: {
+          email?: string
+          fails?: number
+          id?: string
+          ip?: string
+          locked_until?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          case_id: string | null
+          channel: string
+          created_at: string
+          detail: string | null
+          elder_id: string
+          id: string
+          sent_at: string | null
+          status: string
+          target: string
+        }
+        Insert: {
+          case_id?: string | null
+          channel?: string
+          created_at?: string
+          detail?: string | null
+          elder_id: string
+          id?: string
+          sent_at?: string | null
+          status?: string
+          target: string
+        }
+        Update: {
+          case_id?: string | null
+          channel?: string
+          created_at?: string
+          detail?: string | null
+          elder_id?: string
+          id?: string
+          sent_at?: string | null
+          status?: string
+          target?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_elder_id_fkey"
+            columns: ["elder_id"]
+            isOneToOne: false
+            referencedRelation: "elders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scheduler_runs: {
+        Row: {
+          chains_advanced: number
+          detail: string | null
+          finished_at: string | null
+          id: string
+          jobs_created: number
+          jobs_run: number
+          ok: boolean
+          purged: number
+          started_at: string
+        }
+        Insert: {
+          chains_advanced?: number
+          detail?: string | null
+          finished_at?: string | null
+          id?: string
+          jobs_created?: number
+          jobs_run?: number
+          ok?: boolean
+          purged?: number
+          started_at?: string
+        }
+        Update: {
+          chains_advanced?: number
+          detail?: string | null
+          finished_at?: string | null
+          id?: string
+          jobs_created?: number
+          jobs_run?: number
+          ok?: boolean
+          purged?: number
+          started_at?: string
+        }
+        Relationships: []
+      }
       sensor_alerts: {
         Row: {
           alert_type: string
@@ -291,8 +510,10 @@ export type Database = {
           closed_at: string | null
           elder_id: string
           external_id: string
+          human_informed_at: string | null
           id: string
           received_at: string
+          safe_note: string | null
           status: string
         }
         Insert: {
@@ -301,8 +522,10 @@ export type Database = {
           closed_at?: string | null
           elder_id: string
           external_id: string
+          human_informed_at?: string | null
           id?: string
           received_at?: string
+          safe_note?: string | null
           status?: string
         }
         Update: {
@@ -311,8 +534,10 @@ export type Database = {
           closed_at?: string | null
           elder_id?: string
           external_id?: string
+          human_informed_at?: string | null
           id?: string
           received_at?: string
+          safe_note?: string | null
           status?: string
         }
         Relationships: [
@@ -387,6 +612,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      clear_login_attempts: {
+        Args: { p_email: string; p_ip: string }
+        Returns: undefined
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -395,7 +624,15 @@ export type Database = {
         Returns: boolean
       }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
+      login_lock_status: {
+        Args: { p_email: string; p_ip: string }
+        Returns: string
+      }
       purge_opted_out_elders: { Args: never; Returns: number }
+      record_login_failure: {
+        Args: { p_email: string; p_ip: string }
+        Returns: string
+      }
     }
     Enums: {
       app_role: "admin" | "operator"

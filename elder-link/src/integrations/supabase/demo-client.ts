@@ -260,11 +260,11 @@ class DemoQuery implements PromiseLike<{ data: any; error: any }> {
           embedFilters.every((f) => matches(c, f)),
         );
         if (rel.kind === "one") {
-          const found = candidates.find((c) => c.id === row[rel.key]) ?? null;
+          const found = candidates.find((c) => c["id"] === row[rel.key]) ?? null;
           if (!found && (e.inner || embedFilters.length > 0)) keep = false;
           next[e.name] = found ? project(found, e.columns, []) : null;
         } else {
-          const found = candidates.filter((c) => c[rel.key] === row.id);
+          const found = candidates.filter((c) => c[rel.key] === row["id"]);
           if (found.length === 0 && (e.inner || embedFilters.length > 0)) keep = false;
           next[e.name] = found.map((c) => project(c, e.columns, []));
         }
@@ -365,7 +365,7 @@ export function isDemoMode(): boolean {
 export function createDemoClient() {
   const db = createDemoDb();
   console.info(
-    "%c[Elder Link] Demo mode — in-memory data + mock telephony. Reload resets. Set VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY to use a real project.",
+    "%c[Elder Link] Local dev store — in-memory data + mock telephony. Reload resets. Set VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY to use the live project.",
     "color:#0a7",
   );
 
@@ -384,7 +384,7 @@ export function createDemoClient() {
       signInWithPassword: async () => ({ data: { session: DEMO_SESSION, user: DEMO_SESSION.user }, error: null }),
       // Always signed in during a demo, so nobody can lock themselves out.
       signOut: async () => {
-        console.info("[Elder Link] Demo mode keeps you signed in as", DEMO_SESSION.user.email);
+        console.info("[Elder Link] Local dev store — signed in as", DEMO_SESSION.user.email);
         return { error: null };
       },
     },
@@ -403,13 +403,15 @@ export function createDemoClient() {
     rpc: async (name: string) => {
       if (name === "purge_opted_out_elders") {
         const cutoff = Date.now() - 30 * DAY;
-        const before = db.elders.length;
-        db.elders = db.elders.filter(
-          (e) => !(e.status === "opted_out" && e.opted_out_at && new Date(e.opted_out_at).getTime() < cutoff),
+        const elders = db["elders"] ?? [];
+        const before = elders.length;
+        const kept = elders.filter(
+          (e) => !(e["status"] === "opted_out" && e["opted_out_at"] && new Date(e["opted_out_at"]).getTime() < cutoff),
         );
-        const purged = before - db.elders.length;
+        db["elders"] = kept;
+        const purged = before - kept.length;
         if (purged > 0) {
-          db.audit_events.push({
+          db["audit_events"]?.push({
             id: uuid(), actor: null, action: `purge:${purged}`, entity: "elders",
             entity_id: null, at: new Date().toISOString(),
           });

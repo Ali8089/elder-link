@@ -2,11 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "buildCommand": "vite build --config vite.config.vercel.ts",
-  "installCommand": "npm install",
-  "crons": [
-    {
-      "path": "/api/cron/tick",
-      "schedule": "* * * * *"
-    }
-  ]
+  "installCommand": "npm install"
 }

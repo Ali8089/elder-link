@@ -56,7 +56,7 @@ export function createRunner(db: SupabaseClient<any, any, any>, provider: Teleph
     const contacts = check(await db.from("contacts").select("*").eq("elder_id", elderId).order("priority"));
     const now = new Date().toISOString();
     const steps = CHAIN_ORDER.map((target, i) => {
-      const ct = contacts.find((x: Row) => x.priority === i + 1);
+      const ct = contacts.find((x: Row) => x["priority"] === i + 1);
       return {
         case_id: c.id,
         step_order: i + 1,
@@ -136,9 +136,9 @@ export function createRunner(db: SupabaseClient<any, any, any>, provider: Teleph
           .from("elders")
           .update({
             last_check_at: done.toISOString(),
-            next_check_at: nextCheckAt(done, elder.check_interval_days).toISOString(),
+            next_check_at: nextCheckAt(done, elder["check_interval_days"]).toISOString(),
           })
-          .eq("id", elder.id),
+          .eq("id", elder["id"]),
       );
       if (job.kind === "sensor") {
         // FR-08: a safe sensor result closes the alert AND informs the designated human.
@@ -153,23 +153,23 @@ export function createRunner(db: SupabaseClient<any, any, any>, provider: Teleph
             })
             .eq("call_job_id", jobId),
         );
-        await notifyDesignatedContact(elder.id, null, "Sensor alert closed safely after verification call.");
-        await logAnalytics("sensor_safe_closure", elder.id);
+        await notifyDesignatedContact(elder["id"], null, "Sensor alert closed safely after verification call.");
+        await logAnalytics("sensor_safe_closure", elder["id"]);
       }
-      await logAnalytics("activity_offered", elder.id);
+      await logAnalytics("activity_offered", elder["id"]);
     } else if (step === "retry") {
       check(
         await db.from("call_jobs").insert({
-          elder_id: elder.id,
+          elder_id: elder["id"],
           kind: "retry",
           attempt: job.attempt + 1,
           due_at: retryDueAt(done).toISOString(),
         }),
       );
-      await logAnalytics("retry_scheduled", elder.id);
+      await logAnalytics("retry_scheduled", elder["id"]);
     } else {
       const reason = job.kind === "sensor" && outcome !== "danger" ? "sensor" : outcome;
-      await openCase(elder.id, reason, jobId, done);
+      await openCase(elder["id"], reason, jobId, done);
     }
     await audit(`call.${outcome}`, "call_jobs", jobId, actorId);
     return { outcome, step };
@@ -188,7 +188,7 @@ export function createRunner(db: SupabaseClient<any, any, any>, provider: Teleph
     check(await db.from("call_jobs").update({ status: "ringing", started_at: started.toISOString() }).eq("id", jobId));
     await logAnalytics("call_initiated", jobId);
 
-    const res = await provider.placeCall({ jobId, to: elder.phone, simulatedAnswer });
+    const res = await provider.placeCall({ jobId, to: elder["phone"], simulatedAnswer });
     await recordTelephonyEvent(res.eventId, jobId, "call.completed");
 
     if (!res.placed) {
@@ -279,7 +279,7 @@ export function createRunner(db: SupabaseClient<any, any, any>, provider: Teleph
   async function advanceCaseChain(caseId: string, result: "answered" | "no_answer") {
     const rows = check(await db.from("escalation_steps").select("*").eq("case_id", caseId).order("step_order"));
     const next = advanceChain(
-      rows.map((r: Row) => ({ target: r.target, status: r.status }) as ChainStep),
+      rows.map((r: Row) => ({ target: r["target"], status: r["status"] }) as ChainStep),
       result,
     );
     const now = new Date().toISOString();

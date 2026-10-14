@@ -10,9 +10,9 @@ export const Route = createFileRoute("/_authenticated/analytics")({
   head: () => ({
     meta: [
       { title: "Health & results — Elder Link" },
-      { name: "description", content: "Prototype metrics: call outcomes, escalation timing and unresolved cases." },
+      { name: "description", content: "Service metrics: call outcomes, escalation timing and unresolved cases." },
       { property: "og:title", content: "Health & results — Elder Link" },
-      { property: "og:description", content: "Elder Link prototype metrics." },
+      { property: "og:description", content: "Service metrics for Elder Link." },
     ],
   }),
   component: Analytics,

@@ -1,5 +1,5 @@
 // Telephony adapters. Swap the provider without touching the orchestrator.
-// Mock is the default so the prototype runs with no vendor account.
+// Mock is the default so the service runs with no vendor account connected.
 // Set TELEPHONY_PROVIDER=twilio plus the TWILIO_* variables to place real calls.
 //
 // Twilio auth: prefer an API Key (SK… + secret) over the account Auth Token.
@@ -53,13 +53,13 @@ export interface TwilioConfig {
   /** Fixed caller number in E.164, e.g. +85212345678. */
   fromNumber: string;
   /** <Say> language, e.g. yue-HK. Must match the chosen voice. */
-  language?: string;
+  language?: string | undefined;
   /** Explicit voice, e.g. Google.yue-HK-Standard-A. Strongly recommended for Cantonese. */
-  voice?: string;
+  voice?: string | undefined;
   /** Public URL of the webhook route. */
   webhookUrl: string;
   /** Optional pre-generated Cantonese audio URL to play instead of <Say>. */
-  audioUrl?: string;
+  audioUrl?: string | undefined;
 }
 
 /**
@@ -127,9 +127,9 @@ export function createTwilioProvider(cfg: TwilioConfig): TelephonyProvider {
 export function buildGatherTwiml(input: {
   jobId: string;
   language: string;
-  voice?: string;
+  voice?: string | undefined;
   webhookUrl: string;
-  audioUrl?: string;
+  audioUrl?: string | undefined;
   mode?: "dtmf" | "speech";
 }): string {
   const disclosure = CALL_SCRIPT.find((s) => s.id === "disclosure")!;
@@ -166,20 +166,20 @@ export function buildGatherTwiml(input: {
 
 /** Chooses the provider from environment variables; mock by default. */
 export function selectProvider(env: Record<string, string | undefined>): TelephonyProvider {
-  const kind = (env.TELEPHONY_PROVIDER ?? "mock").toLowerCase();
-  const accountSid = env.TWILIO_ACCOUNT_SID;
-  const authUser = env.TWILIO_API_KEY_SID || env.TWILIO_ACCOUNT_SID;
-  const authPass = env.TWILIO_API_KEY_SECRET || env.TWILIO_AUTH_TOKEN;
-  if (kind === "twilio" && accountSid && authUser && authPass && env.TWILIO_FROM_NUMBER) {
+  const kind = (env["TELEPHONY_PROVIDER"] ?? "mock").toLowerCase();
+  const accountSid = env["TWILIO_ACCOUNT_SID"];
+  const authUser = env["TWILIO_API_KEY_SID"] || env["TWILIO_ACCOUNT_SID"];
+  const authPass = env["TWILIO_API_KEY_SECRET"] || env["TWILIO_AUTH_TOKEN"];
+  if (kind === "twilio" && accountSid && authUser && authPass && env["TWILIO_FROM_NUMBER"]) {
     return createTwilioProvider({
       accountSid,
       authUser,
       authPass,
-      fromNumber: env.TWILIO_FROM_NUMBER,
-      language: env.TWILIO_LANGUAGE,
-      voice: env.TWILIO_VOICE,
-      webhookUrl: env.TELEPHONY_WEBHOOK_URL ?? "",
-      audioUrl: env.TWILIO_AUDIO_URL,
+      fromNumber: env["TWILIO_FROM_NUMBER"],
+      language: env["TWILIO_LANGUAGE"],
+      voice: env["TWILIO_VOICE"],
+      webhookUrl: env["TELEPHONY_WEBHOOK_URL"] ?? "",
+      audioUrl: env["TWILIO_AUDIO_URL"],
     });
   }
   return MockProvider;

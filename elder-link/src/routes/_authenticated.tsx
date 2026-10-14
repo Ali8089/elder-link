@@ -1,8 +1,7 @@
 import { createFileRoute, Link, Outlet, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { BarChart3, FlaskConical, ListChecks, PhoneCall, UserPlus, LogOut } from "lucide-react";
+import { BarChart3, PhoneCall, ListChecks, UserPlus, LogOut } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { isDemoMode } from "@/integrations/supabase/demo-client";
 import { useAuth } from "@/hooks/useAuth";
 import { useScheduler } from "@/hooks/useScheduler";
 import { LangSwitch, useI18n } from "@/lib/i18n";
@@ -15,7 +14,7 @@ export const Route = createFileRoute("/_authenticated")({
 const nav = [
   { to: "/cases", key: "cases", Icon: ListChecks },
   { to: "/enrol", key: "enrol", Icon: UserPlus },
-  { to: "/test-controls", key: "testControls", Icon: FlaskConical },
+  { to: "/test-controls", key: "testControls", Icon: PhoneCall },
   { to: "/analytics", key: "analytics", Icon: BarChart3 },
 ] as const;
 
@@ -59,14 +58,6 @@ function Layout() {
         <p className="hidden px-6 py-4 text-xs opacity-80 md:block">{t("notice")}</p>
       </header>
       <main className="min-w-0 p-4 md:p-8">
-        {isDemoMode() && (
-          <p
-            role="status"
-            className="mb-6 rounded-md border-2 border-dashed border-warn bg-warn-soft p-3 text-sm font-semibold text-warn"
-          >
-            ⚠ Demo mode — in-memory data, mock telephony (no real calls). A reload resets everything.
-          </p>
-        )}
         <Outlet />
       </main>
     </div>

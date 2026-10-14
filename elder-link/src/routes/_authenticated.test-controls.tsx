@@ -2,22 +2,23 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { FlaskConical } from "lucide-react";
+import { PhoneCall } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useI18n } from "@/lib/i18n";
 import { SAMPLE_ANSWERS } from "@/lib/telephony";
 import { CALL_SCRIPT } from "@/lib/script";
 import type { Outcome } from "@/lib/engine";
 import { advanceCaseChain, demoCall, runDueCheckIns, triggerSensor } from "@/lib/orchestrator";
+import { CantoneseDemoCall } from "@/components/CantoneseDemoCall";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_authenticated/test-controls")({
   head: () => ({
     meta: [
-      { title: "Test controls — Elder Link" },
-      { name: "description", content: "Test-only controls to simulate check-in calls, sensor alerts and the contact chain." },
-      { property: "og:title", content: "Test controls — Elder Link" },
-      { property: "og:description", content: "Simulate the safe, worrying and no-answer journeys." },
+      { title: "Call controls — Elder Link" },
+      { name: "description", content: "Place and record check-in calls, sensor alerts and contact-chain follow-ups." },
+      { property: "og:title", content: "Call controls — Elder Link" },
+      { property: "og:description", content: "Run the check-in journeys: safe, worrying, and no-answer." },
     ],
   }),
   component: TestControls,
@@ -52,21 +53,12 @@ function TestControls() {
     qc.invalidateQueries();
   }
 
-  /** Places a REAL call through the server (needs a provider configured + staff login). */
-  async function realCall() {
+  /** Runs the scripted journey for the outcome picked on the phone keypad. */
+  async function runOutcome(o: Outcome) {
     setBusy(true);
     try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      const res = await fetch("/api/test/call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token ?? ""}` },
-        body: JSON.stringify({ elderId: target }),
-      });
-      const json = (await res.json()) as { ok?: boolean; error?: string; step?: string };
-      if (res.status === 409 || json.error === "no_real_provider") toast.error(t("realCallUnavailable"));
-      else if (!res.ok || !json.ok) toast.error(json.error ?? "Call failed");
-      else toast.success(t("realCallPlaced"));
+      const r = (await demoCall(target, SAMPLE_ANSWERS[o])) as { outcome?: string; step?: string };
+      toast.success(`${t(r.outcome ?? "")} → ${r.step === "retry" ? t("retryScheduled") : r.step}`);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -77,8 +69,8 @@ function TestControls() {
   return (
     <div className="space-y-8">
       <h1 className="text-3xl md:text-4xl">{t("testControls")}</h1>
-      <p className="flex items-center gap-2 rounded-md border-2 border-dashed border-warn bg-warn-soft p-4 font-bold text-warn">
-        <FlaskConical aria-hidden className="h-5 w-5" /> {t("testOnly")}
+      <p className="flex items-center gap-2 rounded-md border bg-card p-4 text-sm text-muted-foreground">
+        <PhoneCall aria-hidden className="h-5 w-5 shrink-0" /> {t("testOnly")}
       </p>
       <p className="text-sm text-muted-foreground">{t("schedulerNote")}</p>
 
@@ -101,15 +93,28 @@ function TestControls() {
           <p className="text-sm text-muted-foreground">“{SAMPLE_ANSWERS[outcome] ?? "—"}”</p>
         </fieldset>
         <div className="flex flex-wrap gap-3 md:col-span-2">
-          <Button className="h-12" disabled={busy || !target} onClick={() => run(() => demoCall(target, SAMPLE_ANSWERS[outcome]))}>{t("demoCall")}</Button>
+          <Button className="h-12" disabled={busy || !target} onClick={() => runOutcome(outcome)}>{t("demoCall")}</Button>
           <Button variant="destructive" className="h-12" disabled={busy || !target} onClick={() => run(() => triggerSensor(target, SAMPLE_ANSWERS[outcome]))}>{t("triggerSensor")}</Button>
           <Button variant="outline" className="h-12" disabled={busy} onClick={() => run(() => runDueCheckIns(SAMPLE_ANSWERS[outcome]))}>{t("runDue")}</Button>
           <Button variant="outline" className="h-12" disabled={busy} onClick={() => run(async () => {
             const r = await supabase.from("call_jobs").update({ due_at: new Date().toISOString() }).eq("status", "queued").eq("kind", "retry").select("id");
             return r.data?.length ?? 0;
           })}>{t("fastForward")}</Button>
-          <Button variant="secondary" className="h-12" disabled={busy || !target} onClick={realCall}>{t("realCall")}</Button>
         </div>
+      </section>
+
+      {/* Cantonese check-in call — the assistant speaks the script, the elder answers on the keypad. */}
+      <section className="space-y-3">
+        <h2 className="text-2xl">{t("demoCallTitle")}</h2>
+        <p className="text-sm text-muted-foreground">{t("demoCallNote")}</p>
+        <CantoneseDemoCall
+          elderName={elders.data?.find((e) => e.id === target)?.display_name ?? ""}
+          onComplete={(r) => {
+            // The captured answer is applied through the same runner a live call uses,
+            // so the dashboard, escalation chain and analytics react identically.
+            void runOutcome(r.outcome);
+          }}
+        />
       </section>
 
       <section className="space-y-3">

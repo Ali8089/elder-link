@@ -16,11 +16,13 @@ import { Route as AuthenticatedCasesRouteImport } from './routes/_authenticated.
 import { Route as AuthenticatedEnrolRouteImport } from './routes/_authenticated.enrol'
 import { Route as AuthenticatedTestControlsRouteImport } from './routes/_authenticated.test-controls'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as DemoPhoneVerificationRouteImport } from './routes/demo.phone-verification'
 import { Route as AuthenticatedEldersIdRouteImport } from './routes/_authenticated.elders.$id'
 import { Route as ApiAnalyticsSummaryRouteImport } from './routes/api/analytics/summary'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as ApiAuthSignupRouteImport } from './routes/api/auth/signup'
 import { Route as ApiCronTickRouteImport } from './routes/api/cron/tick'
+import { Route as ApiDemoMockVerifyRouteImport } from './routes/api/demo/mock-verify'
 import { Route as ApiTelephonyEventsRouteImport } from './routes/api/telephony/events'
 import { Route as ApiTestCallRouteImport } from './routes/api/test/call'
 
@@ -59,6 +61,11 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DemoPhoneVerificationRoute = DemoPhoneVerificationRouteImport.update({
+  id: '/demo/phone-verification',
+  path: '/demo/phone-verification',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedEldersIdRoute = AuthenticatedEldersIdRouteImport.update({
   id: '/elders/$id',
   path: '/elders/$id',
@@ -84,6 +91,11 @@ const ApiCronTickRoute = ApiCronTickRouteImport.update({
   path: '/api/cron/tick',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDemoMockVerifyRoute = ApiDemoMockVerifyRouteImport.update({
+  id: '/api/demo/mock-verify',
+  path: '/api/demo/mock-verify',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiTelephonyEventsRoute = ApiTelephonyEventsRouteImport.update({
   id: '/api/telephony/events',
   path: '/api/telephony/events',
@@ -102,11 +114,13 @@ export interface FileRoutesByFullPath {
   '/enrol': typeof AuthenticatedEnrolRoute
   '/test-controls': typeof AuthenticatedTestControlsRoute
   '/api/health': typeof ApiHealthRoute
+  '/demo/phone-verification': typeof DemoPhoneVerificationRoute
   '/elders/$id': typeof AuthenticatedEldersIdRoute
   '/api/analytics/summary': typeof ApiAnalyticsSummaryRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
   '/api/cron/tick': typeof ApiCronTickRoute
+  '/api/demo/mock-verify': typeof ApiDemoMockVerifyRoute
   '/api/telephony/events': typeof ApiTelephonyEventsRoute
   '/api/test/call': typeof ApiTestCallRoute
 }
@@ -117,11 +131,13 @@ export interface FileRoutesByTo {
   '/enrol': typeof AuthenticatedEnrolRoute
   '/test-controls': typeof AuthenticatedTestControlsRoute
   '/api/health': typeof ApiHealthRoute
+  '/demo/phone-verification': typeof DemoPhoneVerificationRoute
   '/elders/$id': typeof AuthenticatedEldersIdRoute
   '/api/analytics/summary': typeof ApiAnalyticsSummaryRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
   '/api/cron/tick': typeof ApiCronTickRoute
+  '/api/demo/mock-verify': typeof ApiDemoMockVerifyRoute
   '/api/telephony/events': typeof ApiTelephonyEventsRoute
   '/api/test/call': typeof ApiTestCallRoute
 }
@@ -134,11 +150,13 @@ export interface FileRoutesById {
   '/_authenticated/enrol': typeof AuthenticatedEnrolRoute
   '/_authenticated/test-controls': typeof AuthenticatedTestControlsRoute
   '/api/health': typeof ApiHealthRoute
+  '/demo/phone-verification': typeof DemoPhoneVerificationRoute
   '/_authenticated/elders/$id': typeof AuthenticatedEldersIdRoute
   '/api/analytics/summary': typeof ApiAnalyticsSummaryRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
   '/api/cron/tick': typeof ApiCronTickRoute
+  '/api/demo/mock-verify': typeof ApiDemoMockVerifyRoute
   '/api/telephony/events': typeof ApiTelephonyEventsRoute
   '/api/test/call': typeof ApiTestCallRoute
 }
@@ -151,11 +169,13 @@ export interface FileRouteTypes {
     | '/enrol'
     | '/test-controls'
     | '/api/health'
+    | '/demo/phone-verification'
     | '/elders/$id'
     | '/api/analytics/summary'
     | '/api/auth/login'
     | '/api/auth/signup'
     | '/api/cron/tick'
+    | '/api/demo/mock-verify'
     | '/api/telephony/events'
     | '/api/test/call'
   fileRoutesByTo: FileRoutesByTo
@@ -166,11 +186,13 @@ export interface FileRouteTypes {
     | '/enrol'
     | '/test-controls'
     | '/api/health'
+    | '/demo/phone-verification'
     | '/elders/$id'
     | '/api/analytics/summary'
     | '/api/auth/login'
     | '/api/auth/signup'
     | '/api/cron/tick'
+    | '/api/demo/mock-verify'
     | '/api/telephony/events'
     | '/api/test/call'
   id:
@@ -182,11 +204,13 @@ export interface FileRouteTypes {
     | '/_authenticated/enrol'
     | '/_authenticated/test-controls'
     | '/api/health'
+    | '/demo/phone-verification'
     | '/_authenticated/elders/$id'
     | '/api/analytics/summary'
     | '/api/auth/login'
     | '/api/auth/signup'
     | '/api/cron/tick'
+    | '/api/demo/mock-verify'
     | '/api/telephony/events'
     | '/api/test/call'
   fileRoutesById: FileRoutesById
@@ -195,10 +219,12 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   ApiHealthRoute: typeof ApiHealthRoute
+  DemoPhoneVerificationRoute: typeof DemoPhoneVerificationRoute
   ApiAnalyticsSummaryRoute: typeof ApiAnalyticsSummaryRoute
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiAuthSignupRoute: typeof ApiAuthSignupRoute
   ApiCronTickRoute: typeof ApiCronTickRoute
+  ApiDemoMockVerifyRoute: typeof ApiDemoMockVerifyRoute
   ApiTelephonyEventsRoute: typeof ApiTelephonyEventsRoute
   ApiTestCallRoute: typeof ApiTestCallRoute
 }
@@ -254,6 +280,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/demo/phone-verification': {
+      id: '/demo/phone-verification'
+      path: '/demo/phone-verification'
+      fullPath: '/demo/phone-verification'
+      preLoaderRoute: typeof DemoPhoneVerificationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/elders/$id': {
       id: '/_authenticated/elders/$id'
       path: '/elders/$id'
@@ -287,6 +320,13 @@ declare module '@tanstack/react-router' {
       path: '/api/cron/tick'
       fullPath: '/api/cron/tick'
       preLoaderRoute: typeof ApiCronTickRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/demo/mock-verify': {
+      id: '/api/demo/mock-verify'
+      path: '/api/demo/mock-verify'
+      fullPath: '/api/demo/mock-verify'
+      preLoaderRoute: typeof ApiDemoMockVerifyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/telephony/events': {
@@ -330,10 +370,12 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   ApiHealthRoute: ApiHealthRoute,
+  DemoPhoneVerificationRoute: DemoPhoneVerificationRoute,
   ApiAnalyticsSummaryRoute: ApiAnalyticsSummaryRoute,
   ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiAuthSignupRoute: ApiAuthSignupRoute,
   ApiCronTickRoute: ApiCronTickRoute,
+  ApiDemoMockVerifyRoute: ApiDemoMockVerifyRoute,
   ApiTelephonyEventsRoute: ApiTelephonyEventsRoute,
   ApiTestCallRoute: ApiTestCallRoute,
 }
