@@ -22,6 +22,7 @@ import { Route as AuthenticatedEldersIdRouteImport } from './routes/_authenticat
 import { Route as ApiAnalyticsSummaryRouteImport } from './routes/api/analytics/summary'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as ApiAuthSignupRouteImport } from './routes/api/auth/signup'
+import { Route as ApiCallsRecentRouteImport } from './routes/api/calls/recent'
 import { Route as ApiCronTickRouteImport } from './routes/api/cron/tick'
 import { Route as ApiDemoMockVerifyRouteImport } from './routes/api/demo/mock-verify'
 import { Route as ApiSensorsDoorRouteImport } from './routes/api/sensors/door'
@@ -96,6 +97,11 @@ const ApiAuthSignupRoute = ApiAuthSignupRouteImport.update({
   path: '/api/auth/signup',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCallsRecentRoute = ApiCallsRecentRouteImport.update({
+  id: '/api/calls/recent',
+  path: '/api/calls/recent',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCronTickRoute = ApiCronTickRouteImport.update({
   id: '/api/cron/tick',
   path: '/api/cron/tick',
@@ -150,6 +156,7 @@ export interface FileRoutesByFullPath {
   '/api/analytics/summary': typeof ApiAnalyticsSummaryRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
+  '/api/calls/recent': typeof ApiCallsRecentRoute
   '/api/cron/tick': typeof ApiCronTickRoute
   '/api/demo/mock-verify': typeof ApiDemoMockVerifyRoute
   '/api/sensors/door': typeof ApiSensorsDoorRoute
@@ -172,6 +179,7 @@ export interface FileRoutesByTo {
   '/api/analytics/summary': typeof ApiAnalyticsSummaryRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
+  '/api/calls/recent': typeof ApiCallsRecentRoute
   '/api/cron/tick': typeof ApiCronTickRoute
   '/api/demo/mock-verify': typeof ApiDemoMockVerifyRoute
   '/api/sensors/door': typeof ApiSensorsDoorRoute
@@ -196,6 +204,7 @@ export interface FileRoutesById {
   '/api/analytics/summary': typeof ApiAnalyticsSummaryRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
+  '/api/calls/recent': typeof ApiCallsRecentRoute
   '/api/cron/tick': typeof ApiCronTickRoute
   '/api/demo/mock-verify': typeof ApiDemoMockVerifyRoute
   '/api/sensors/door': typeof ApiSensorsDoorRoute
@@ -220,6 +229,7 @@ export interface FileRouteTypes {
     | '/api/analytics/summary'
     | '/api/auth/login'
     | '/api/auth/signup'
+    | '/api/calls/recent'
     | '/api/cron/tick'
     | '/api/demo/mock-verify'
     | '/api/sensors/door'
@@ -242,6 +252,7 @@ export interface FileRouteTypes {
     | '/api/analytics/summary'
     | '/api/auth/login'
     | '/api/auth/signup'
+    | '/api/calls/recent'
     | '/api/cron/tick'
     | '/api/demo/mock-verify'
     | '/api/sensors/door'
@@ -265,6 +276,7 @@ export interface FileRouteTypes {
     | '/api/analytics/summary'
     | '/api/auth/login'
     | '/api/auth/signup'
+    | '/api/calls/recent'
     | '/api/cron/tick'
     | '/api/demo/mock-verify'
     | '/api/sensors/door'
@@ -283,6 +295,7 @@ export interface RootRouteChildren {
   ApiAnalyticsSummaryRoute: typeof ApiAnalyticsSummaryRoute
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiAuthSignupRoute: typeof ApiAuthSignupRoute
+  ApiCallsRecentRoute: typeof ApiCallsRecentRoute
   ApiCronTickRoute: typeof ApiCronTickRoute
   ApiDemoMockVerifyRoute: typeof ApiDemoMockVerifyRoute
   ApiSensorsDoorRoute: typeof ApiSensorsDoorRoute
@@ -386,6 +399,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSignupRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/calls/recent': {
+      id: '/api/calls/recent'
+      path: '/api/calls/recent'
+      fullPath: '/api/calls/recent'
+      preLoaderRoute: typeof ApiCallsRecentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/cron/tick': {
       id: '/api/cron/tick'
       path: '/api/cron/tick'
@@ -475,6 +495,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAnalyticsSummaryRoute: ApiAnalyticsSummaryRoute,
   ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiAuthSignupRoute: ApiAuthSignupRoute,
+  ApiCallsRecentRoute: ApiCallsRecentRoute,
   ApiCronTickRoute: ApiCronTickRoute,
   ApiDemoMockVerifyRoute: ApiDemoMockVerifyRoute,
   ApiSensorsDoorRoute: ApiSensorsDoorRoute,

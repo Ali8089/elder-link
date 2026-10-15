@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useRole } from "@/hooks/useRole";
 import { useScheduler } from "@/hooks/useScheduler";
+import { AutoCallPlayer } from "@/components/AutoCallPlayer";
 import { LangSwitch, useI18n } from "@/lib/i18n";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -89,6 +90,13 @@ export function Layout() {
       <main className="min-w-0 p-4 md:p-8">
         <Outlet />
       </main>
+      {/*
+        Mounted in the layout, not on a page: the mock provider cannot make a
+        sound on the server, so the only way a caregiver HEARS a call is if a
+        browser plays it. Putting this here means every staff screen can hear
+        an elder being called, rather than only the call-controls page.
+      */}
+      <AutoCallPlayer />
     </div>
   );
 }

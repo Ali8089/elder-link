@@ -320,7 +320,15 @@ export function createRunner(db: SupabaseClient<any, any, any>, provider: Teleph
     check(await db.from("call_jobs").update({ status: "ringing", started_at: started.toISOString() }).eq("id", jobId));
     await logAnalytics("call_initiated", jobId);
 
-    const res = await provider.placeCall({ jobId, to: elder["phone"], simulatedAnswer });
+    // `elderId`/`elderName` are carried through purely so the mock provider can
+    // announce an audible call. A real provider ignores them.
+    const res = await provider.placeCall({
+      jobId,
+      to: elder["phone"],
+      simulatedAnswer,
+      elderId: job["elder_id"] as string,
+      elderName: (elder["display_name"] as string | null) ?? "",
+    });
     await recordTelephonyEvent(res.eventId, jobId, "call.completed");
 
     if (!res.placed) {

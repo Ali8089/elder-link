@@ -6,12 +6,24 @@
 // The account SID (AC…) is still required in the API URL path.
 import type { Outcome } from "./engine";
 import { CALL_SCRIPT } from "./script";
+import { announceCall } from "./call-broadcast";
 
 export interface PlaceCallInput {
   jobId: string;
   to: string;
   /** Only used by the mock provider (simulated spoken answer). */
   simulatedAnswer?: string | null;
+  /**
+   * Who is being called, for the mock's audible announcement.
+   *
+   * The mock has no real dialling to do, so what it produces instead is a
+   * signal the dashboard plays as recorded Cantonese. That signal is only
+   * useful if it names the elder, and the provider is otherwise handed nothing
+   * but a job id and a phone number. Optional because a real provider has no
+   * use for it — Twilio knows the name from the number it dials.
+   */
+  elderId?: string;
+  elderName?: string;
 }
 
 export interface PlaceCallResult {
@@ -34,7 +46,18 @@ export interface TelephonyProvider {
 
 export const MockProvider: TelephonyProvider = {
   name: "mock",
-  async placeCall({ jobId, simulatedAnswer }) {
+  async placeCall({ jobId, simulatedAnswer, elderId, elderName }) {
+    // No vendor, no dialling — but not silence either. Announce the call so an
+    // open dashboard can play the recorded Cantonese script and the call is
+    // actually HEARD. Without this the mock is indistinguishable from a call
+    // that failed, which is exactly how it looked in the pilot demo.
+    //
+    // Announced only when the elder is known: an announcement with no one to
+    // call is not something a caregiver can act on, and the on-screen phone
+    // would have to show an empty name.
+    if (elderId && elderName) {
+      announceCall({ jobId, elderId, elderName, simulatedAnswer: simulatedAnswer ?? null });
+    }
     return {
       eventId: `mock-${jobId}-${Date.now()}`,
       answer: simulatedAnswer ?? null,
