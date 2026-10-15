@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, Check, X } from "lucide-react";
+import { ArrowLeft, Check, Volume2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useI18n } from "@/lib/i18n";
 import { useLive } from "@/hooks/useLive";
@@ -19,6 +19,8 @@ import {
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { CallReplay, type ReplayJob } from "@/components/CallReplay";
+import { isRecordedOutcome } from "@/lib/script";
 
 /** Activity codes match the seeded rows in the activities table. */
 const ACTIVITY_CODES = ["walk", "tea", "call", "stretch"] as const;
@@ -40,6 +42,8 @@ function ElderDetail() {
   const { t } = useI18n();
   const { user } = useAuth();
   const qc = useQueryClient();
+  /** The call job whose replay is open, or null when the dialog is closed. */
+  const [replayJob, setReplayJob] = useState<ReplayJob | null>(null);
   useLive();
   const q = useQuery({
     queryKey: ["elder", id],
@@ -70,9 +74,15 @@ function ElderDetail() {
 
   return (
     <div className="space-y-8">
-      <Link to="/cases" className="inline-flex min-h-11 items-center gap-1 font-semibold underline">
-        <ArrowLeft aria-hidden className="h-4 w-4" /> {t("back")}
-      </Link>
+      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm">
+        <Link to="/cases" className="inline-flex min-h-11 items-center gap-1 font-semibold underline">
+          <ArrowLeft aria-hidden className="h-4 w-4" /> {t("back")}
+        </Link>
+        <span aria-hidden className="text-muted-foreground">/</span>
+        <Link to="/test-controls" className="inline-flex min-h-11 items-center font-semibold underline">
+          {t("testControls")}
+        </Link>
+      </nav>
       <header className="flex flex-wrap items-center gap-3">
         <h1 className="text-3xl md:text-4xl">{elder.display_name}</h1>
         <StatusBadge kind={elder.status} />
@@ -141,21 +151,68 @@ function ElderDetail() {
         <h2 id="h-h" className="text-xl">{t("history")}</h2>
         <div className="mt-3 overflow-x-auto rounded-lg border bg-card">
           <table className="w-full text-left text-sm">
-            <thead className="bg-muted"><tr><th className="p-3">Time</th><th className="p-3">Type</th><th className="p-3">#</th><th className="p-3">Result</th><th className="p-3">{t("activity")}</th></tr></thead>
+            <thead className="bg-muted"><tr><th className="p-3">Time</th><th className="p-3">Type</th><th className="p-3">#</th><th className="p-3">Result</th><th className="p-3">{t("activity")}</th><th className="p-3">{t("listen")}</th></tr></thead>
             <tbody>
-              {jobs.map((j) => (
-                <tr key={j.id} className="border-t">
-                  <td className="p-3">{new Date(j.created_at).toLocaleString()}</td>
-                  <td className="p-3">{j.kind}</td>
-                  <td className="p-3">{j.attempt}</td>
-                  <td className="p-3">{j.outcome ? <StatusBadge kind={j.outcome} /> : `${j.status} · due ${new Date(j.due_at).toLocaleTimeString()}`}</td>
-                  <td className="p-3">{j.activity_suggestion ?? "—"}</td>
-                </tr>
-              ))}
+              {jobs.map((j) => {
+                // A job only has a call to replay once it recorded an outcome.
+                // A queued / unconnected retry has none, and must not offer
+                // playback that would do nothing.
+                const replayable = isRecordedOutcome(j.outcome);
+                const job: ReplayJob = {
+                  id: j.id,
+                  kind: j.kind,
+                  attempt: j.attempt,
+                  status: j.status,
+                  outcome: j.outcome,
+                  activity_suggestion: j.activity_suggestion,
+                  due_at: j.due_at,
+                  started_at: j.started_at,
+                  completed_at: j.completed_at,
+                  created_at: j.created_at,
+                };
+                const when = new Date(j.created_at).toLocaleString();
+                return (
+                  <tr key={j.id} className="border-t">
+                    <td className="p-3">{when}</td>
+                    <td className="p-3">{j.kind}</td>
+                    <td className="p-3">{j.attempt}</td>
+                    <td className="p-3">{j.outcome ? <StatusBadge kind={j.outcome} /> : `${j.status} · due ${new Date(j.due_at).toLocaleTimeString()}`}</td>
+                    <td className="p-3">{j.activity_suggestion ?? "—"}</td>
+                    <td className="p-3">
+                      {replayable ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="min-h-10"
+                          data-testid={`replay-open-${j.id}`}
+                          aria-label={`${t("listen")}: ${elder.display_name} ${when}`}
+                          onClick={() => setReplayJob(job)}
+                        >
+                          <Volume2 className="mr-1 size-4" aria-hidden /> {t("listen")}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="min-h-10"
+                          disabled
+                          title={t("replayNoCall")}
+                        >
+                          {t("replayNoCallShort")}
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </section>
+
+      {replayJob ? (
+        <CallReplay elderName={elder.display_name} job={replayJob} onClose={() => setReplayJob(null)} />
+      ) : null}
     </div>
   );
 }

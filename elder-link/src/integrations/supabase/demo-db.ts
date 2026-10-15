@@ -28,6 +28,9 @@ export function uuid(): string {
 /** The signed-in staff account used in demo mode. */
 export const DEMO_USER = { id: "00000000-0000-4000-8000-000000000001", email: "demo@oic.hk" };
 
+/** A second account, linked as a relative, so the family screen can be seen. */
+export const DEMO_FAMILY_USER = { id: "00000000-0000-4000-8000-000000000002", email: "family@oic.hk" };
+
 export const DEMO_SESSION = {
   access_token: "demo-access-token",
   refresh_token: "demo-refresh-token",
@@ -42,6 +45,15 @@ const E2 = "22222222-2222-4222-8222-222222222222";
 const E3 = "33333333-3333-4333-8333-333333333333";
 const E4 = "44444444-4444-4444-8444-444444444444";
 const E5 = "55555555-5555-4555-8555-555555555555";
+
+/**
+ * 周伯's elder id, exported because the door sensor is installed for him.
+ *
+ * The sensor watcher needs a concrete elder to call and cannot look one up by
+ * name at runtime; naming the constant here keeps that mapping in one place
+ * instead of duplicating a uuid literal at the call site.
+ */
+export const ZHOU_BO_ELDER_ID = E5;
 const CASE1 = "c0000000-0000-4000-8000-000000000001";
 
 /**
@@ -195,6 +207,70 @@ export function createDemoDb(): DemoDb {
     created_at: offsetIso(offset - 60_000),
   }));
 
+  // 周伯 specifically needs a mixed call history: the replay view has to cope
+  // with more than one outcome, more than one kind, and with a job that never
+  // connected at all (nothing to replay). Stable ids so the browser test can
+  // target each row directly.
+  callJobs.push(
+    {
+      // A scheduled check-in that ended well — the path that earns closing music.
+      id: "e5job0000-0000-4000-8000-000000000001",
+      elder_id: E5,
+      kind: "scheduled",
+      attempt: 1,
+      status: "completed",
+      outcome: "safe",
+      activity_suggestion: "散步 / walk",
+      due_at: offsetIso(-1 * DAY),
+      started_at: offsetIso(-1 * DAY),
+      completed_at: offsetIso(-1 * DAY + 95_000),
+      created_at: offsetIso(-1 * DAY - 60_000),
+    },
+    {
+      // Sensor-triggered, ended worrying — the outcome kind must be evident.
+      id: "e5job0000-0000-4000-8000-000000000002",
+      elder_id: E5,
+      kind: "sensor",
+      attempt: 1,
+      status: "completed",
+      outcome: "worrying",
+      activity_suggestion: null,
+      due_at: offsetIso(-6 * HOUR),
+      started_at: offsetIso(-6 * HOUR),
+      completed_at: offsetIso(-6 * HOUR + 88_000),
+      created_at: offsetIso(-6 * HOUR - 60_000),
+    },
+    {
+      // Nobody picked up — replayable, but the elder side is an honest silence.
+      id: "e5job0000-0000-4000-8000-000000000003",
+      elder_id: E5,
+      kind: "scheduled",
+      attempt: 1,
+      status: "completed",
+      outcome: "no_answer",
+      activity_suggestion: null,
+      due_at: offsetIso(-2 * DAY),
+      started_at: offsetIso(-2 * DAY),
+      completed_at: offsetIso(-2 * DAY + 75_000),
+      created_at: offsetIso(-2 * DAY - 60_000),
+    },
+    {
+      // A retry that has not connected yet: no outcome, so there is no call to
+      // replay. This is the row the UI must refuse to offer playback for.
+      id: "e5job0000-0000-4000-8000-000000000004",
+      elder_id: E5,
+      kind: "retry",
+      attempt: 2,
+      status: "queued",
+      outcome: null,
+      activity_suggestion: null,
+      due_at: offsetIso(4 * 60_000),
+      started_at: null,
+      completed_at: null,
+      created_at: offsetIso(-45_000),
+    },
+  );
+
   // One open case, mid-chain: contact 1 did not answer, contact 2 is ringing.
   // This makes the escalation chain visible on first load instead of only after
   // a journey is triggered from the test controls.
@@ -256,5 +332,29 @@ export function createDemoDb(): DemoDb {
     login_attempts: [],
     scheduler_runs: [],
     analytics_events: [],
+    // Without this table the signed-in user has no role, the nav renders empty
+    // and the dashboard is reachable only by typing a URL. Mirrors 0000's
+    // handle_new_user_role trigger plus 0002's family role.
+    user_roles: [
+      { id: uuid(), user_id: DEMO_USER.id, role: "operator" },
+      { id: uuid(), user_id: DEMO_FAMILY_USER.id, role: "family" },
+    ],
+    // One approved link and one still awaiting staff approval, mirroring the
+    // seed in 0002_family_monitoring.sql.
+    family_members: [
+      {
+        id: uuid(), elder_id: E1, user_id: DEMO_FAMILY_USER.id,
+        name: "周美玲", relation: "女兒", phone: "+852 6000 0001", email: null,
+        notify_level: "all", wants_activity_news: true, status: "active",
+        invited_at: offsetIso(-20 * DAY), linked_at: offsetIso(-18 * DAY),
+        created_at: offsetIso(-20 * DAY), updated_at: offsetIso(-18 * DAY),
+      },
+      {
+        id: uuid(), elder_id: E2, user_id: null,
+        name: "李小明", relation: "兒子", phone: "+852 6000 0002", email: null,        notify_level: "all", wants_activity_news: true, status: "pending",
+        invited_at: offsetIso(-3 * DAY), linked_at: null,
+        created_at: offsetIso(-3 * DAY), updated_at: offsetIso(-3 * DAY),
+      },
+    ],
   };
 }
