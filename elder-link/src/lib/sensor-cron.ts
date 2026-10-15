@@ -24,7 +24,8 @@
 // mid-episode, the episode id is still the same one, so the constraint still
 // suppresses the duplicate and the elder is not rung twice for one open door.
 
-import { episodeId, parseReading, type SensorReading } from "./sensor";
+import { parseReading, doorHeldOpen, type SensorReading } from "./sensor";
+import { episodeEnded, resolveEpisodeId, type OpenEpisode } from "./sensor-episode";
 
 /** A watched door sensor and the elder it belongs to. */
 export type SensorConfig = {
@@ -90,6 +91,92 @@ export async function fetchDeviceReading(
   }
 }
 
+/**
+ * How long the force reading must sit at the closed baseline before the app
+ * believes the door is really shut.
+ *
+ * Needed because the firmware's `open`/`alarm` booleans are not always enough to
+ * tell one door-open episode from the next, and the force value alone does not
+ * either — a single sample at baseline could be the door settling rather than
+ * the door being shut. Both questions come down to "is this door actually still
+ * displaced?", which is a question about a *span of time*, not about one instant.
+ *
+ * So the app samples for this long before concluding. Four seconds is chosen
+ * against the two costs: long enough that a door mid-swing or a noisy load cell
+ * cannot fake a closure, short enough that a genuine reopen is noticed well
+ * inside the firmware's own 15-second threshold. If the device goes away during
+ * the window, the window reports "still open" — holding state is always the safe
+ * direction, because it can only ever cost a delayed second call, never a
+ * spurious one.
+ *
+ * A window is expressed as *both* a duration and a sample count, and it ends
+ * when either is reached. The count is what makes the behaviour deterministic:
+ * a duration alone would make the number of samples depend on how fast the
+ * network and the event loop happen to be, so the same door could produce a
+ * different verdict on a busy host than an idle one.
+ */
+export const OBSERVATION_WINDOW_MS = 4_000;
+
+/** How often to sample during the observation window. */
+export const OBSERVATION_SAMPLE_MS = 500;
+
+/** How many samples a window takes, whichever comes first. */
+export const OBSERVATION_SAMPLES = 6;
+
+/**
+ * Watch the device for a moment to decide whether the door is still displaced.
+ *
+ * Returns true when any sample showed the door still held open — that is, the
+ * door has *not* demonstrably returned to rest. Returns false only when every
+ * sample was readable and all of them sat at the closed baseline, which is a
+ * door that has shut.
+ *
+ * The asymmetry is deliberate and is the whole point of the function: proving a
+ * closure requires positive evidence across the whole window, while *not*
+ * proving one needs only a single sample. Unreadable samples therefore count as
+ * "still open", so an unreachable device can never end an episode.
+ */
+export async function observeDoorStillDisplaced(
+  sensor: SensorConfig,
+  opts: {
+    fetchImpl?: typeof fetch;
+    windowMs?: number;
+    sampleMs?: number;
+    samples?: number;
+    sleep?: (ms: number) => Promise<void>;
+    /** Per-request timeout. Kept below the window so one slow read cannot eat it all. */
+    requestTimeoutMs?: number;
+  } = {},
+): Promise<boolean> {
+  const windowMs = opts.windowMs ?? OBSERVATION_WINDOW_MS;
+  const sampleMs = opts.sampleMs ?? OBSERVATION_SAMPLE_MS;
+  const requestedSamples = opts.samples ?? OBSERVATION_SAMPLES;
+  const maxSamples = Math.max(1, requestedSamples);
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const requestTimeoutMs = opts.requestTimeoutMs ?? Math.max(1_000, Math.min(3_000, windowMs));
+
+  // In production the window ends on the clock. When a caller pins the sample
+  // count explicitly the clock is not consulted at all, so the outcome is
+  // reproducible rather than dependent on how fast the host happens to be — a
+  // door that shut and reopened must not be judged differently on a busy machine.
+  const clockBounded = opts.samples === undefined;
+  const deadline = Date.now() + windowMs;
+
+  for (let taken = 0; taken < maxSamples; taken++) {
+    const reading = await fetchDeviceReading(sensor.dataUrl, {
+      timeoutMs: requestTimeoutMs,
+      ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+    });
+    if (reading === null || doorHeldOpen(reading)) return true;
+    // The last sample has been taken; stopping here keeps the count exact
+    // instead of sleeping once more for nothing.
+    if (taken === maxSamples - 1) return false;
+    if (clockBounded && Date.now() >= deadline) return false;
+    await sleep(sampleMs);
+  }
+  return false;
+}
+
 /** What one check of one sensor decided. Returned for logging and tests. */
 export type SensorCheckOutcome =
   | { action: "none"; reason: "no-alarm" | "unreachable"; label: string }
@@ -97,9 +184,39 @@ export type SensorCheckOutcome =
   | { action: "already-called"; label: string; episodeId: string }
   | { action: "blocked"; label: string; episodeId: string; error: string };
 
+/** A door-open episode as recorded in the database, plus when the door opened. */
+export type OpenEpisodeRef = OpenEpisode & {
+  /**
+   * The onset moment of the episode, read back out of its id.
+   *
+   * The id is `door:<device>:<iso>` and was written once, on the tick the alarm
+   * was first seen — so it is a durable record of when this door-open *began*.
+   * Comparing onsets is how the app distinguishes "the same door, still open"
+   * from "the door was shut and opened again", without a second column that
+   * could drift out of sync with the id it is supposed to describe.
+   */
+  openedAt: string;
+};
+
 /** The narrow slice of the runner this module needs. */
 export type SensorRunner = {
+  /**
+   * The still-open episode for this elder's sensor, if any.
+   *
+   * This is what makes the check stateless-safe: the open row IS the memory of
+   * "we have already called about this door". Without it each tick would mint a
+   * new episode id and ring the elder again.
+   */
+  findOpenSensorEpisode(elderId: string): Promise<OpenEpisodeRef | null>;
   claimSensorEpisode(input: { elderId: string; externalId: string }): Promise<{ duplicate: boolean }>;
+  /**
+   * Finish a running episode because the door is no longer alarming.
+   *
+   * Without this the dedup becomes a permanent gag: the next time the same door
+   * is left open, the stale open row is found, the claim collides, and no call
+   * is made. See the note on `resolveEpisodeId`.
+   */
+  closeSensorEpisode(input: { elderId: string; externalId: string; endReason: string }): Promise<{ closed: boolean }>;
   createCallJob(elderId: string, kind: "sensor"): Promise<{ id: string }>;
   attachAlertJob(externalId: string, jobId: string): Promise<unknown>;
   audit(action: string, entity: string): Promise<unknown>;
@@ -128,8 +245,16 @@ export async function checkSensors(deps: {
   fetchImpl?: typeof fetch;
   now?: () => Date;
   log?: (message: string) => void;
-  /** How long to wait for all sensors. */
+  /** How long to wait for a single device read. */
   timeoutMs?: number;
+  /** Observation-window length, injected so tests need not wait in real time. */
+  windowMs?: number;
+  /** Observation-window sampling interval. */
+  sampleMs?: number;
+  /** How many samples the observation window takes. */
+  samples?: number;
+  /** Injected sleep, so tests can make the observation window instantaneous. */
+  sleep?: (ms: number) => Promise<void>;
 }): Promise<SensorCheckOutcome[]> {
   const log = deps.log ?? (() => {});
   const now = deps.now ?? (() => new Date());
@@ -151,16 +276,104 @@ export async function checkSensors(deps: {
 
     if (!reading.alarm) {
       // The door is closed, or open but not yet past the firmware's threshold.
-      // Either way there is nothing to do — the device owns that timing.
+      // Either way there is nothing to call about — the device owns that timing.
+      //
+      // But there is bookkeeping to do: if an episode is still open, the door
+      // has now demonstrably come back below the threshold, so that episode is
+      // over and must be closed. Leaving it open would make the *next* alarm on
+      // this door look like a duplicate and silently suppress the call.
+      //
+      // This is safe because we have a real reading: `episodeEnded` is only
+      // reached here, never on the null (unreachable) path above. A board going
+      // quiet must not end an episode, or the next successful read would start a
+      // fresh one and ring the elder twice for a single open door.
+      const openEpisode = await deps.runner.findOpenSensorEpisode(sensor.elderId);
+      if (openEpisode && episodeEnded(reading)) {
+        await deps.runner.closeSensorEpisode({
+          elderId: sensor.elderId,
+          externalId: openEpisode.externalId,
+          endReason: reading.open ? "door_open_under_threshold" : "door_closed",
+        });
+        log(`[sensor] ${sensor.label}: door no longer alarming — episode closed`);
+      }
       outcomes.push({ action: "none", reason: "no-alarm", label: sensor.label });
       continue;
     }
+    // The door is genuinely alarming. Before deciding it is a NEW episode, ask
+    // the database whether one is already open for this sensor. If it is, this
+    // reading belongs to it: reuse the id so the claim below collides and no
+    // second call is placed. This lookup is what stops a door left open all
+    // night from ringing the elder once a minute.
+    //
+    // The comparison is by *episode*, not by state, which is what makes this
+    // safe to run on every tick. `deviceReportedAlarmAt` is when the device's own
+    // threshold tripped — the moment this door-open began — not when we happened
+    // to look. Two alarms with different onset times are different episodes.
+    const deviceReportedAlarmAt = new Date(now().toISOString());
+    let openEpisode = await deps.runner.findOpenSensorEpisode(sensor.elderId);
 
-    const episode = episodeId(sensor.deviceId, now());
+    // Has this door been shut and opened again since we last called about it?
+    //
+    // The firmware's `open`/`alarm` booleans cannot answer that on their own: a
+    // reopen can be fast enough, or the reads far enough apart, that no sample
+    // ever lands in between. Every read is then `open: true, alarm: true` and a
+    // flags-only detector concludes the door never closed — suppressing a real
+    // second call for as long as the stale episode stays open.
+    //
+    // So the question is re-asked as one about the door rather than the flags:
+    // is the door still physically displaced? That is decided by watching the
+    // force reading for a moment (see observeDoorStillDisplaced), because the
+    // answer is about a span of time. Only a door that demonstrably returned to
+    // its closed baseline counts as having shut — anything else, including an
+    // unreadable device, keeps the current episode.
+    //
+    // Being wrong here costs a duplicate call rather than a missed one, and a
+    // duplicate is the cheaper mistake: a missed call is an elder sitting behind
+    // a door nobody rang about.
+    if (openEpisode) {
+      const stillDisplaced = await observeDoorStillDisplaced(sensor, {
+        ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
+        ...(deps.windowMs !== undefined ? { windowMs: deps.windowMs } : {}),
+        ...(deps.sampleMs !== undefined ? { sampleMs: deps.sampleMs } : {}),
+        ...(deps.samples !== undefined ? { samples: deps.samples } : {}),
+        ...(deps.sleep ? { sleep: deps.sleep } : {}),
+      });
+      if (!stillDisplaced) {
+        await deps.runner.closeSensorEpisode({
+          elderId: sensor.elderId,
+          externalId: openEpisode.externalId,
+          endReason: "door_reopened",
+        });
+        log(`[sensor] ${sensor.label}: door was shut and reopened — previous episode closed`);
+        // The episode is finished; this reading starts the successor. Dropping
+        // the reference is what lets the successor's id differ from its
+        // predecessor's — if the stale row were still visible here, the new
+        // claim would collide with it and be refused, and because external_id is
+        // UNIQUE no retry would ever get a call through for that door again.
+        openEpisode = null;
+      }
+    }
+
+    const { externalId: episode, reused } = resolveEpisodeId(sensor.deviceId, {
+      openEpisode,
+      firstSeenAt: deviceReportedAlarmAt,
+    });
+
+    if (reused) {
+      outcomes.push({ action: "already-called", label: sensor.label, episodeId: episode });
+      continue;
+    }
+
+    // The claim is the authority, and it is the *only* authority. The UNIQUE
+    // constraint on `sensor_alerts.external_id` is what guarantees one call per
+    // episode, so its verdict is final: a duplicate means somebody already owns
+    // this episode and no other check — including the lookup above — gets to
+    // overrule it. In particular the code must not assume a previously closed
+    // episode has been forgotten; if the id comes back as taken, that is the end
+    // of the matter, and the elder is not called.
     const claim = await deps.runner.claimSensorEpisode({ elderId: sensor.elderId, externalId: episode });
     if (claim.duplicate) {
-      // Already actioned for this open door. Silent by design — this is the
-      // expected state on every tick while a door stays open.
+      // Two ticks raced and the other won the claim. Let it own the call.
       outcomes.push({ action: "already-called", label: sensor.label, episodeId: episode });
       continue;
     }

@@ -22,6 +22,8 @@ import {
 } from "./engine";
 import { MockProvider, type TelephonyProvider } from "./telephony";
 import { checkSensors, sensorConfigFromEnv, type SensorCheckOutcome } from "./sensor-cron";
+import type { OpenEpisode } from "./sensor-episode";
+import type { OpenEpisodeRef } from "./sensor-cron";
 
 type Row = Record<string, any>;
 
@@ -116,6 +118,99 @@ export function createRunner(db: SupabaseClient<any, any, any>, provider: Teleph
     check(
       await db.from("sensor_alerts").update({ call_job_id: jobId }).eq("external_id", externalId),
     );
+  }
+
+  /**
+   * The still-open door episode for an elder, if there is one.
+   *
+   * This is the memory that makes "one call per open door" survive the tick
+   * being stateless. Each tick is a fresh process with no recollection of the
+   * last one, so the only place the episode can live is the database — and the
+   * open `sensor_alerts` row was already being written there to record the
+   * alert, so it costs nothing to read it back as the marker.
+   *
+   * Returns the newest open row: if a previous episode somehow never closed,
+   * the most recent one is the one the current alarm belongs to.
+   */
+  async function findOpenSensorEpisode(elderId: string): Promise<OpenEpisodeRef | null> {
+    const rows = check(
+      await db
+        .from("sensor_alerts")
+        .select("external_id, received_at")
+        .eq("elder_id", elderId)
+        .eq("alert_type", "door_open")
+        .eq("status", "open")
+        .order("received_at", { ascending: false })
+        .limit(1),
+    );
+    const row = rows[0] as Row | undefined;
+    if (!row) return null;
+    const externalId = row["external_id"] as string;
+    const receivedAt = row["received_at"] as string;
+    return { externalId, receivedAt, openedAt: onsetOfEpisode(deviceIdFromEpisodeId(externalId), receivedAt, externalId) };
+  }
+
+  /**
+   * The onset timestamp encoded in a `door:<device>:<iso>` episode id.
+   *
+   * The id is the durable record of when the door *first* alarmed — it was
+   * written once and never updated — so comparing onsets is how the app tells
+   * "the same open door" from "the door was shut and opened again" without
+   * storing the onset in a second column that could drift out of sync.
+   *
+   * Falls back to the row's `received_at` for ids that do not carry a timestamp
+   * (older rows, or a hand-written id), which is the best available proxy.
+   */
+  function deviceIdFromEpisodeId(externalId: string): string {
+    const parts = externalId.split(":");
+    return parts.length >= 3 ? parts[1]! : "";
+  }
+
+  /** The onset ISO string of an episode, taken from its id where possible. */
+  function onsetOfEpisode(_deviceId: string, receivedAt: string, externalId: string): string {
+    const parts = externalId.split(":");
+    const encoded = parts.length >= 3 ? parts.slice(2).join(":") : "";
+    return encoded || receivedAt;
+  }
+
+  /**
+   * Marks an episode finished, so a later alarm on the same door is treated as a
+   * new one.
+   *
+   * This is the other half of "call once per open door", and the half that is
+   * easy to forget. Dedup works by reusing the open episode id; if the episode
+   * is never closed, the *next* time the door is left open the reuse finds the
+   * old row, the claim collides, and the elder is never called again. Turning
+   * the dedup into a permanent gag is a far worse failure than the duplicate
+   * call it replaced.
+   *
+   * Closing is deliberately narrow: `status: "open"` is part of the filter, so
+   * this can only ever finish an episode that is still running. An episode that
+   * was already closed by a successful verification call (FR-08, in
+   * applyCallResult) is left alone, and its `safe_note` and `human_informed_at`
+   * are not overwritten.
+   *
+   * Writes ONLY columns that exist in the shipped schema (`status`, `closed_at`).
+   * An earlier version also set an `end_reason` column, which no migration
+   * created — so every close silently failed with `PGRST204`, no episode was
+   * ever finished, and the dedup would have gagged the sensor permanently. The
+   * reason now goes to the audit trail instead, which is the right home for it
+   * anyway: it is an explanation of a decision, not a property of the row.
+   */
+  async function closeSensorEpisode(input: { elderId: string; externalId: string; endReason: string }) {
+    const r = await db
+      .from("sensor_alerts")
+      .update({ status: "closed", closed_at: new Date().toISOString() })
+      .eq("elder_id", input.elderId)
+      .eq("external_id", input.externalId)
+      .eq("status", "open")
+      .select("id");
+    if (r.error) throw new Error(r.error.message);
+    const closed = (r.data ?? []) as Row[];
+    if (closed.length > 0) {
+      await audit(`sensor.episode_closed:${input.endReason}`, "sensor_alerts", closed[0]!["id"] as string);
+    }
+    return { closed: closed.length > 0 };
   }
 
   /** Consent gate + prototype rate limit, checked before any call is created. */
@@ -485,7 +580,15 @@ export function createRunner(db: SupabaseClient<any, any, any>, provider: Teleph
     try {
       return await checkSensors({
         sensors,
-        runner: { claimSensorEpisode, createCallJob, attachAlertJob, audit, runCallJob },
+        runner: {
+          findOpenSensorEpisode,
+          claimSensorEpisode,
+          closeSensorEpisode,
+          createCallJob,
+          attachAlertJob,
+          audit,
+          runCallJob,
+        },
       });
     } catch (e) {
       console.error(`[tick] sensor check failed: ${(e as Error).message}`);
@@ -504,7 +607,9 @@ export function createRunner(db: SupabaseClient<any, any, any>, provider: Teleph
     recordTelephonyEvent,
     notifyDesignatedContact,
     // door sensor
+    findOpenSensorEpisode,
     claimSensorEpisode,
+    closeSensorEpisode,
     attachAlertJob,
     // case work
     acknowledgeCase,

@@ -30,6 +30,8 @@
 //     a flaky wifi link would reset the edge detector mid-alarm and produce a
 //     second call. Unreachable readings preserve the previous state.
 
+import { DEVICE_CLOSED_BASELINE, DEVICE_OPEN_MARGIN } from "./device-threshold";
+
 /** One reading from the door sensor. */
 export type SensorReading = {
   /** Raw force-sensitive-resistor value; the firmware's own units. */
@@ -132,3 +134,30 @@ export function decideTrigger(
   state.lastWasAlarming = true;
   return { action: "trigger", reason: "alarm-rising", episodeId: episodeId(deviceId, now) };
 }
+
+/**
+ * Was the door meaningfully displaced in this reading?
+ *
+ * Needed because the firmware's own booleans are not always enough to tell one
+ * door-open episode from the next. On the pilot board the force reading returns
+ * to its closed baseline between a door being shut and reopened, but a reopen
+ * can be fast enough — or the reads far enough apart — that the app never sees
+ * `open: false` in between. Both reads are then `open: true, alarm: true`, and a
+ * detector watching only those flags concludes the door never closed and
+ * suppresses the second call entirely.
+ *
+ * The force value carries the information the flags lost: it tracks how far the
+ * door is *pushed*, so a shut-then-reopened door shows a drop back to baseline
+ * even when the booleans never change. Comparing the current value against the
+ * closed baseline recovers the intermediate state.
+ *
+ * Deliberately conservative: a missing or unparsable reading returns false, so
+ * an unreadable device can never manufacture a new episode and trigger a call.
+ */
+export function doorHeldOpen(reading: SensorReading, opts: { baseline?: number; margin?: number } = {}): boolean {
+  const baseline = opts.baseline ?? DEVICE_CLOSED_BASELINE;
+  const margin = opts.margin ?? DEVICE_OPEN_MARGIN;
+  if (!Number.isFinite(reading.fsr)) return false;
+  return reading.fsr > baseline + margin;
+}
+

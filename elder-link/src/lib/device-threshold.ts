@@ -38,6 +38,29 @@ export const DEVICE_THRESHOLD_SECONDS = 15;
 export const DEVICE_FIRMWARE_LABEL = "ESP32-S3 Door Monitor";
 
 /**
+ * The force-sensor reading the device reports while the door is *at rest*
+ * (closed). Measured on the pilot board: a closed door sits near 100–250.
+ *
+ * This exists so the app can tell "the door is open" from "the door is barely
+ * disturbed" when it has only the raw force value to go on — see
+ * `doorHeldOpen` in sensor.ts. It is a property of the physical install (sensor
+ * preload, door weight), not of the firmware, so if the sensor is re-mounted or
+ * the door is changed this number has to be re-measured.
+ */
+export const DEVICE_CLOSED_BASELINE = 120;
+
+/**
+ * How far above the closed baseline the force reading must sit before the app
+ * treats the door as meaningfully displaced.
+ *
+ * Set well clear of both the baseline and the load cell's noise, so that a door
+ * resting against the sensor — or a person brushing past it — does not read as
+ * "open". The pilot board reports ~2200 while the door is held, an order of
+ * magnitude above this line, so the margin is generous rather than tight.
+ */
+export const DEVICE_OPEN_MARGIN = 400;
+
+/**
  * Where the threshold is enforced. There is exactly one correct answer today,
  * and naming it explicitly is the point of this module — it makes it obvious
  * that `device_firmware` is not a placeholder for something the app does.
