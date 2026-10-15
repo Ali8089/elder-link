@@ -21,6 +21,7 @@ import {
   type AnalyticsCategory,
 } from "./engine";
 import { MockProvider, type TelephonyProvider } from "./telephony";
+import { checkSensors, sensorConfigFromEnv, type SensorCheckOutcome } from "./sensor-cron";
 
 type Row = Record<string, any>;
 
@@ -433,6 +434,13 @@ export function createRunner(db: SupabaseClient<any, any, any>, provider: Teleph
     try {
       const { created, ran } = await runDueCheckIns(null);
       const chains = await advanceStaleChains();
+
+      // The door sensor is checked here, on the same heartbeat as everything
+      // else, because a door left open must place a call with nobody watching.
+      // This runs BEFORE the purge so a sensor alert raised this tick is not
+      // racing a deletion of the same elder in the same pass.
+      const sensors = await runSensorChecks();
+
       const purged = await purgeOptedOut();
       check(
         await db
@@ -447,7 +455,7 @@ export function createRunner(db: SupabaseClient<any, any, any>, provider: Teleph
           })
           .eq("id", row.id),
       );
-      return { ok: true, jobs_created: created, jobs_run: ran, chains_advanced: chains, purged };
+      return { ok: true, jobs_created: created, jobs_run: ran, chains_advanced: chains, purged, sensors };
     } catch (e) {
       const detail = (e as Error).message;
       check(
@@ -458,6 +466,30 @@ export function createRunner(db: SupabaseClient<any, any, any>, provider: Teleph
       );
       await logAnalytics("system_error", "tick");
       return { ok: false, error: detail };
+    }
+  }
+
+  /**
+   * Watch every configured door sensor once.
+   *
+   * Failing to reach a device must not fail the whole tick — the scheduled
+   * check-ins still need to run, and a board on domestic wifi going quiet is
+   * routine. So a sensor error is logged and swallowed here rather than allowed
+   * to abort the tick and take the daily calls down with it.
+   */
+  async function runSensorChecks(): Promise<SensorCheckOutcome[]> {
+    const sensors = sensorConfigFromEnv((key) =>
+      typeof process !== "undefined" ? process.env[key] : undefined,
+    );
+    if (sensors.length === 0) return [];
+    try {
+      return await checkSensors({
+        sensors,
+        runner: { claimSensorEpisode, createCallJob, attachAlertJob, audit, runCallJob },
+      });
+    } catch (e) {
+      console.error(`[tick] sensor check failed: ${(e as Error).message}`);
+      return [];
     }
   }
 
