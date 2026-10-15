@@ -767,3 +767,62 @@ export const Constants = {
     },
   },
 } as const
+
+// ---------------------------------------------------------------------------
+// family_members
+//
+// This table is created by supabase/migrations/0002_family_monitoring.sql. The
+// generated types above only describe tables that exist in the live database,
+// so until that migration is applied this interface is the single typed seam
+// for the table.
+//
+// Once 0002 is applied, regenerate with:
+//   npx supabase gen types typescript --project-id <ref> --schema public
+// at which point this hand-written interface becomes redundant and can be
+// deleted. Until then it is what keeps the family screen fully type-checked
+// rather than cast to `any` — the shape below matches the migration exactly.
+// ---------------------------------------------------------------------------
+
+export type FamilyMemberRow = {
+  id: string
+  elder_id: string
+  user_id: string | null
+  name: string
+  relation: string
+  phone: string | null
+  email: string | null
+  notify_level: "all" | "alerts" | "none"
+  wants_activity_news: boolean
+  status: "pending" | "active" | "revoked"
+  invited_at: string
+  linked_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type FamilyMemberUpdate = Partial<
+  Pick<FamilyMemberRow, "notify_level" | "wants_activity_news">
+>
+
+/**
+ * Typed accessor for the family_members table.
+ *
+ * The cast is confined to this one function. Everything downstream — the
+ * select, the filters, the `.update()` payload — is checked against
+ * FamilyMemberRow above, so a typo or a wrong column still fails the build.
+ */
+export function familyMembersTable(client: {
+  from: (table: never) => unknown
+}): {
+  select: (columns?: string) => {
+    order: (
+      column: string,
+      opts?: { ascending?: boolean },
+    ) => Promise<{ data: unknown; error: { message: string } | null }>
+  }
+  update: (values: FamilyMemberUpdate) => {
+    eq: (column: string, value: string) => Promise<{ error: { message: string } | null }>
+  }
+} {
+  return (client.from as (table: string) => never)("family_members") as never
+}

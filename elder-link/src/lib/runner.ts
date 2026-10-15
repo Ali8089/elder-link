@@ -81,6 +81,42 @@ export function createRunner(db: SupabaseClient<any, any, any>, provider: Teleph
     return { duplicate: false };
   }
 
+  /**
+   * Claims a door-sensor episode, returning whether it was already handled.
+   *
+   * `sensor_alerts.external_id` is UNIQUE, so the insert is the arbitration
+   * point: whichever caller inserts first owns the episode and may place a
+   * call. A duplicate-key error is the expected outcome of a second poller or
+   * a restart, not a failure — it is how "one call per door-open episode" is
+   * enforced across processes that share no memory.
+   *
+   * The alert is written before the call job exists (call_job_id null) so the
+   * claim cannot be lost between deciding to call and calling. attachAlertJob
+   * fills the reference in afterwards.
+   */
+  async function claimSensorEpisode(input: { elderId: string; externalId: string }) {
+    const r = await db
+      .from("sensor_alerts")
+      .insert({
+        elder_id: input.elderId,
+        external_id: input.externalId,
+        alert_type: "door_open",
+        status: "open",
+      })
+      .select()
+      .single();
+    if (r.error && r.error.code === "23505") return { duplicate: true as const, id: null };
+    if (r.error) throw new Error(r.error.message);
+    return { duplicate: false as const, id: (r.data as Row)["id"] as string };
+  }
+
+  /** Links a claimed alert to the call job that is verifying it. */
+  async function attachAlertJob(externalId: string, jobId: string) {
+    check(
+      await db.from("sensor_alerts").update({ call_job_id: jobId }).eq("external_id", externalId),
+    );
+  }
+
   /** Consent gate + prototype rate limit, checked before any call is created. */
   async function assertCallAllowed(elderId: string) {
     const elder = check(await db.from("elders").select("*").eq("id", elderId).single());
@@ -435,6 +471,9 @@ export function createRunner(db: SupabaseClient<any, any, any>, provider: Teleph
     advanceCaseChain,
     recordTelephonyEvent,
     notifyDesignatedContact,
+    // door sensor
+    claimSensorEpisode,
+    attachAlertJob,
     // case work
     acknowledgeCase,
     saveCaseNote,

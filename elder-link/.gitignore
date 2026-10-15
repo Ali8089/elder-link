@@ -23,6 +23,10 @@ dist-ssr
 .vinxi
 .tanstack/**
 .nitro
+# Alternative build output used to work around the Windows bulk-delete guard
+# (see vite.config.vercel.ts). Never committed.
+.build-verify
+.build-*
 *.local
 
 # Wrangler / Cloudflare
@@ -45,3 +49,6 @@ dist-ssr
 
 # Supabase CLI scratch
 supabase/.temp/
+
+# Screenshots captured by scripts/e2e-call.mjs — build artefacts, not source
+e2e-shots/

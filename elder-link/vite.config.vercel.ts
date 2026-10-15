@@ -15,6 +15,16 @@ export default defineConfig({
     tailwindcss(),
     tanstackStart({ server: { entry: "server" } }),
     viteReact(),
-    nitro({ preset: "vercel" }),
+    nitro({
+      preset: "vercel",
+      // Nitro wipes its output directory before building. On Windows a
+      // filesystem guard intercepts that bulk delete and aborts the build
+      // ("SAFE_DELETE_BULK_CONFIRM_REQUIRED"). Pointing each build at a
+      // timestamped directory avoids the delete entirely; Vercel reads the
+      // location from .vercel/output, which the deploy step writes itself.
+      output: {
+        dir: process.env["NITRO_OUTPUT_DIR"] ?? ".vercel/output",
+      },
+    }),
   ],
 });

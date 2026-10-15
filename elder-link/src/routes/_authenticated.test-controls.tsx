@@ -2,11 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { PhoneCall } from "lucide-react";
+import { PhoneCall, DoorOpen, Radio } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useI18n } from "@/lib/i18n";
 import { SAMPLE_ANSWERS } from "@/lib/telephony";
 import { CALL_SCRIPT } from "@/lib/script";
+import { describeThreshold } from "@/lib/device-threshold";
 import type { Outcome } from "@/lib/engine";
 import { advanceCaseChain, demoCall, runDueCheckIns, triggerSensorViaEndpoint } from "@/lib/orchestrator";
 import { CantoneseDemoCall } from "@/components/CantoneseDemoCall";
@@ -55,6 +56,32 @@ function TestControls() {
       (await supabase.from("cases").select("id, reason, elders(display_name), escalation_steps(status, target)").neq("status", "closed").order("created_at", { ascending: false })).data ?? [],
   });
   const target = elderId || elders.data?.[0]?.id || "";
+
+  /**
+   * The door sensor's own current reading, straight from the device.
+   *
+   * Read from the device probe rather than from our database, because the point
+   * of showing it is to prove the app and the hardware agree right now — a
+   * stored row would only say what the device reported at some point in the
+   * past. `retry: false` and a short interval keep a missing device from
+   * spamming the console; an unreachable device is a normal event on domestic
+   * wifi and the panel simply shows nothing rather than an error.
+   */
+  const sensorReading = useQuery({
+    queryKey: ["sensor-reading"],
+    queryFn: async () => {
+      const res = await fetch("/api/sensors/reading");
+      if (!res.ok) return null;
+      // The route answers `{ reading, threshold }`; `reading` is null when the
+      // device could not be reached, which is not an error.
+      const body = (await res.json()) as {
+        reading: { fsr: number; open: boolean; alarm: boolean } | null;
+      };
+      return body.reading;
+    },
+    refetchInterval: 5_000,
+    retry: false,
+  });
 
   // Speech recognition is offered only when a recogniser is configured. Without
   // one the call falls back to the keypad, which is the more accessible input
@@ -158,6 +185,49 @@ function TestControls() {
             const r = await supabase.from("call_jobs").update({ due_at: new Date().toISOString() }).eq("status", "queued").eq("kind", "retry").select("id");
             return r.data?.length ?? 0;
           })}>{t("fastForward")}</Button>
+        </div>
+      </section>
+
+      {/*
+        Hardware coherence.
+        The door sensor's timing lives in flashed firmware, not in this app, so
+        the only honest thing a dashboard can do is state what the device is
+        actually doing. Showing the live reading next to the declared threshold
+        means a caregiver can see the two agree — and if someone reflashes the
+        board to a different duration, the mismatch is visible here rather than
+        buried in a comment.
+      */}
+      <section className="space-y-3" aria-labelledby="hw-h">
+        <h2 id="hw-h" className="text-2xl">{t("hardware")}</h2>
+        <div className="rounded-lg border bg-card p-5">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <p className="flex items-center gap-2 font-semibold">
+              <DoorOpen aria-hidden className="h-5 w-5 shrink-0" />
+              {t("doorThreshold")}: <span className="text-primary">{describeThreshold().seconds}s</span>
+            </p>
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Radio aria-hidden className="h-4 w-4 shrink-0" />
+              {t("enforcedByFirmware")}
+            </p>
+            {sensorReading.isSuccess && (
+              <p className="text-sm text-muted-foreground">
+                {t("liveReading")}:{" "}
+                {sensorReading.data ? (
+                  <>
+                    <span className={sensorReading.data.alarm ? "font-semibold text-destructive" : "font-semibold"}>
+                      {sensorReading.data.alarm ? t("doorAlert") : sensorReading.data.open ? t("doorOpen") : t("doorClosed")}
+                    </span>{" "}
+                    <span className="font-mono">fsr={sensorReading.data.fsr}</span>
+                  </>
+                ) : (
+                  // Unreachable is worth showing, not hiding: a caregiver who
+                  // cannot see the door sensor should know that.
+                  <span className="font-semibold text-destructive">{t("sensorUnreachable")}</span>
+                )}
+              </p>
+            )}
+          </div>
+          <p className="mt-3 text-sm text-muted-foreground">{describeThreshold().explanation}</p>
         </div>
       </section>
 

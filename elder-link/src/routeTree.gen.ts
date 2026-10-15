@@ -25,6 +25,7 @@ import { Route as ApiAuthSignupRouteImport } from './routes/api/auth/signup'
 import { Route as ApiCronTickRouteImport } from './routes/api/cron/tick'
 import { Route as ApiDemoMockVerifyRouteImport } from './routes/api/demo/mock-verify'
 import { Route as ApiSensorsDoorRouteImport } from './routes/api/sensors/door'
+import { Route as ApiSensorsReadingRouteImport } from './routes/api/sensors/reading'
 import { Route as ApiSensorsTriggerRouteImport } from './routes/api/sensors/trigger'
 import { Route as ApiSpeechTranscribeRouteImport } from './routes/api/speech/transcribe'
 import { Route as ApiTelephonyEventsRouteImport } from './routes/api/telephony/events'
@@ -110,6 +111,11 @@ const ApiSensorsDoorRoute = ApiSensorsDoorRouteImport.update({
   path: '/api/sensors/door',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSensorsReadingRoute = ApiSensorsReadingRouteImport.update({
+  id: '/api/sensors/reading',
+  path: '/api/sensors/reading',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSensorsTriggerRoute = ApiSensorsTriggerRouteImport.update({
   id: '/api/sensors/trigger',
   path: '/api/sensors/trigger',
@@ -147,6 +153,7 @@ export interface FileRoutesByFullPath {
   '/api/cron/tick': typeof ApiCronTickRoute
   '/api/demo/mock-verify': typeof ApiDemoMockVerifyRoute
   '/api/sensors/door': typeof ApiSensorsDoorRoute
+  '/api/sensors/reading': typeof ApiSensorsReadingRoute
   '/api/sensors/trigger': typeof ApiSensorsTriggerRoute
   '/api/speech/transcribe': typeof ApiSpeechTranscribeRoute
   '/api/telephony/events': typeof ApiTelephonyEventsRoute
@@ -168,6 +175,7 @@ export interface FileRoutesByTo {
   '/api/cron/tick': typeof ApiCronTickRoute
   '/api/demo/mock-verify': typeof ApiDemoMockVerifyRoute
   '/api/sensors/door': typeof ApiSensorsDoorRoute
+  '/api/sensors/reading': typeof ApiSensorsReadingRoute
   '/api/sensors/trigger': typeof ApiSensorsTriggerRoute
   '/api/speech/transcribe': typeof ApiSpeechTranscribeRoute
   '/api/telephony/events': typeof ApiTelephonyEventsRoute
@@ -191,6 +199,7 @@ export interface FileRoutesById {
   '/api/cron/tick': typeof ApiCronTickRoute
   '/api/demo/mock-verify': typeof ApiDemoMockVerifyRoute
   '/api/sensors/door': typeof ApiSensorsDoorRoute
+  '/api/sensors/reading': typeof ApiSensorsReadingRoute
   '/api/sensors/trigger': typeof ApiSensorsTriggerRoute
   '/api/speech/transcribe': typeof ApiSpeechTranscribeRoute
   '/api/telephony/events': typeof ApiTelephonyEventsRoute
@@ -214,6 +223,7 @@ export interface FileRouteTypes {
     | '/api/cron/tick'
     | '/api/demo/mock-verify'
     | '/api/sensors/door'
+    | '/api/sensors/reading'
     | '/api/sensors/trigger'
     | '/api/speech/transcribe'
     | '/api/telephony/events'
@@ -235,6 +245,7 @@ export interface FileRouteTypes {
     | '/api/cron/tick'
     | '/api/demo/mock-verify'
     | '/api/sensors/door'
+    | '/api/sensors/reading'
     | '/api/sensors/trigger'
     | '/api/speech/transcribe'
     | '/api/telephony/events'
@@ -257,6 +268,7 @@ export interface FileRouteTypes {
     | '/api/cron/tick'
     | '/api/demo/mock-verify'
     | '/api/sensors/door'
+    | '/api/sensors/reading'
     | '/api/sensors/trigger'
     | '/api/speech/transcribe'
     | '/api/telephony/events'
@@ -274,6 +286,7 @@ export interface RootRouteChildren {
   ApiCronTickRoute: typeof ApiCronTickRoute
   ApiDemoMockVerifyRoute: typeof ApiDemoMockVerifyRoute
   ApiSensorsDoorRoute: typeof ApiSensorsDoorRoute
+  ApiSensorsReadingRoute: typeof ApiSensorsReadingRoute
   ApiSensorsTriggerRoute: typeof ApiSensorsTriggerRoute
   ApiSpeechTranscribeRoute: typeof ApiSpeechTranscribeRoute
   ApiTelephonyEventsRoute: typeof ApiTelephonyEventsRoute
@@ -394,6 +407,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSensorsDoorRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/sensors/reading': {
+      id: '/api/sensors/reading'
+      path: '/api/sensors/reading'
+      fullPath: '/api/sensors/reading'
+      preLoaderRoute: typeof ApiSensorsReadingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/sensors/trigger': {
       id: '/api/sensors/trigger'
       path: '/api/sensors/trigger'
@@ -458,6 +478,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCronTickRoute: ApiCronTickRoute,
   ApiDemoMockVerifyRoute: ApiDemoMockVerifyRoute,
   ApiSensorsDoorRoute: ApiSensorsDoorRoute,
+  ApiSensorsReadingRoute: ApiSensorsReadingRoute,
   ApiSensorsTriggerRoute: ApiSensorsTriggerRoute,
   ApiSpeechTranscribeRoute: ApiSpeechTranscribeRoute,
   ApiTelephonyEventsRoute: ApiTelephonyEventsRoute,
