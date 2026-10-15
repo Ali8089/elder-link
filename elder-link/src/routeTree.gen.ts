@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AuthenticatedAnalyticsRouteImport } from './routes/_authenticated.analytics'
 import { Route as AuthenticatedCasesRouteImport } from './routes/_authenticated.cases'
 import { Route as AuthenticatedEnrolRouteImport } from './routes/_authenticated.enrol'
+import { Route as AuthenticatedFamilyRouteImport } from './routes/_authenticated.family'
 import { Route as AuthenticatedTestControlsRouteImport } from './routes/_authenticated.test-controls'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as DemoPhoneVerificationRouteImport } from './routes/demo.phone-verification'
@@ -23,6 +24,9 @@ import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as ApiAuthSignupRouteImport } from './routes/api/auth/signup'
 import { Route as ApiCronTickRouteImport } from './routes/api/cron/tick'
 import { Route as ApiDemoMockVerifyRouteImport } from './routes/api/demo/mock-verify'
+import { Route as ApiSensorsDoorRouteImport } from './routes/api/sensors/door'
+import { Route as ApiSensorsTriggerRouteImport } from './routes/api/sensors/trigger'
+import { Route as ApiSpeechTranscribeRouteImport } from './routes/api/speech/transcribe'
 import { Route as ApiTelephonyEventsRouteImport } from './routes/api/telephony/events'
 import { Route as ApiTestCallRouteImport } from './routes/api/test/call'
 
@@ -48,6 +52,11 @@ const AuthenticatedCasesRoute = AuthenticatedCasesRouteImport.update({
 const AuthenticatedEnrolRoute = AuthenticatedEnrolRouteImport.update({
   id: '/enrol',
   path: '/enrol',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedFamilyRoute = AuthenticatedFamilyRouteImport.update({
+  id: '/family',
+  path: '/family',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedTestControlsRoute =
@@ -96,6 +105,21 @@ const ApiDemoMockVerifyRoute = ApiDemoMockVerifyRouteImport.update({
   path: '/api/demo/mock-verify',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSensorsDoorRoute = ApiSensorsDoorRouteImport.update({
+  id: '/api/sensors/door',
+  path: '/api/sensors/door',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSensorsTriggerRoute = ApiSensorsTriggerRouteImport.update({
+  id: '/api/sensors/trigger',
+  path: '/api/sensors/trigger',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSpeechTranscribeRoute = ApiSpeechTranscribeRouteImport.update({
+  id: '/api/speech/transcribe',
+  path: '/api/speech/transcribe',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiTelephonyEventsRoute = ApiTelephonyEventsRouteImport.update({
   id: '/api/telephony/events',
   path: '/api/telephony/events',
@@ -112,6 +136,7 @@ export interface FileRoutesByFullPath {
   '/analytics': typeof AuthenticatedAnalyticsRoute
   '/cases': typeof AuthenticatedCasesRoute
   '/enrol': typeof AuthenticatedEnrolRoute
+  '/family': typeof AuthenticatedFamilyRoute
   '/test-controls': typeof AuthenticatedTestControlsRoute
   '/api/health': typeof ApiHealthRoute
   '/demo/phone-verification': typeof DemoPhoneVerificationRoute
@@ -121,6 +146,9 @@ export interface FileRoutesByFullPath {
   '/api/auth/signup': typeof ApiAuthSignupRoute
   '/api/cron/tick': typeof ApiCronTickRoute
   '/api/demo/mock-verify': typeof ApiDemoMockVerifyRoute
+  '/api/sensors/door': typeof ApiSensorsDoorRoute
+  '/api/sensors/trigger': typeof ApiSensorsTriggerRoute
+  '/api/speech/transcribe': typeof ApiSpeechTranscribeRoute
   '/api/telephony/events': typeof ApiTelephonyEventsRoute
   '/api/test/call': typeof ApiTestCallRoute
 }
@@ -129,6 +157,7 @@ export interface FileRoutesByTo {
   '/analytics': typeof AuthenticatedAnalyticsRoute
   '/cases': typeof AuthenticatedCasesRoute
   '/enrol': typeof AuthenticatedEnrolRoute
+  '/family': typeof AuthenticatedFamilyRoute
   '/test-controls': typeof AuthenticatedTestControlsRoute
   '/api/health': typeof ApiHealthRoute
   '/demo/phone-verification': typeof DemoPhoneVerificationRoute
@@ -138,6 +167,9 @@ export interface FileRoutesByTo {
   '/api/auth/signup': typeof ApiAuthSignupRoute
   '/api/cron/tick': typeof ApiCronTickRoute
   '/api/demo/mock-verify': typeof ApiDemoMockVerifyRoute
+  '/api/sensors/door': typeof ApiSensorsDoorRoute
+  '/api/sensors/trigger': typeof ApiSensorsTriggerRoute
+  '/api/speech/transcribe': typeof ApiSpeechTranscribeRoute
   '/api/telephony/events': typeof ApiTelephonyEventsRoute
   '/api/test/call': typeof ApiTestCallRoute
 }
@@ -148,6 +180,7 @@ export interface FileRoutesById {
   '/_authenticated/analytics': typeof AuthenticatedAnalyticsRoute
   '/_authenticated/cases': typeof AuthenticatedCasesRoute
   '/_authenticated/enrol': typeof AuthenticatedEnrolRoute
+  '/_authenticated/family': typeof AuthenticatedFamilyRoute
   '/_authenticated/test-controls': typeof AuthenticatedTestControlsRoute
   '/api/health': typeof ApiHealthRoute
   '/demo/phone-verification': typeof DemoPhoneVerificationRoute
@@ -157,6 +190,9 @@ export interface FileRoutesById {
   '/api/auth/signup': typeof ApiAuthSignupRoute
   '/api/cron/tick': typeof ApiCronTickRoute
   '/api/demo/mock-verify': typeof ApiDemoMockVerifyRoute
+  '/api/sensors/door': typeof ApiSensorsDoorRoute
+  '/api/sensors/trigger': typeof ApiSensorsTriggerRoute
+  '/api/speech/transcribe': typeof ApiSpeechTranscribeRoute
   '/api/telephony/events': typeof ApiTelephonyEventsRoute
   '/api/test/call': typeof ApiTestCallRoute
 }
@@ -167,6 +203,7 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/cases'
     | '/enrol'
+    | '/family'
     | '/test-controls'
     | '/api/health'
     | '/demo/phone-verification'
@@ -176,6 +213,9 @@ export interface FileRouteTypes {
     | '/api/auth/signup'
     | '/api/cron/tick'
     | '/api/demo/mock-verify'
+    | '/api/sensors/door'
+    | '/api/sensors/trigger'
+    | '/api/speech/transcribe'
     | '/api/telephony/events'
     | '/api/test/call'
   fileRoutesByTo: FileRoutesByTo
@@ -184,6 +224,7 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/cases'
     | '/enrol'
+    | '/family'
     | '/test-controls'
     | '/api/health'
     | '/demo/phone-verification'
@@ -193,6 +234,9 @@ export interface FileRouteTypes {
     | '/api/auth/signup'
     | '/api/cron/tick'
     | '/api/demo/mock-verify'
+    | '/api/sensors/door'
+    | '/api/sensors/trigger'
+    | '/api/speech/transcribe'
     | '/api/telephony/events'
     | '/api/test/call'
   id:
@@ -202,6 +246,7 @@ export interface FileRouteTypes {
     | '/_authenticated/analytics'
     | '/_authenticated/cases'
     | '/_authenticated/enrol'
+    | '/_authenticated/family'
     | '/_authenticated/test-controls'
     | '/api/health'
     | '/demo/phone-verification'
@@ -211,6 +256,9 @@ export interface FileRouteTypes {
     | '/api/auth/signup'
     | '/api/cron/tick'
     | '/api/demo/mock-verify'
+    | '/api/sensors/door'
+    | '/api/sensors/trigger'
+    | '/api/speech/transcribe'
     | '/api/telephony/events'
     | '/api/test/call'
   fileRoutesById: FileRoutesById
@@ -225,6 +273,9 @@ export interface RootRouteChildren {
   ApiAuthSignupRoute: typeof ApiAuthSignupRoute
   ApiCronTickRoute: typeof ApiCronTickRoute
   ApiDemoMockVerifyRoute: typeof ApiDemoMockVerifyRoute
+  ApiSensorsDoorRoute: typeof ApiSensorsDoorRoute
+  ApiSensorsTriggerRoute: typeof ApiSensorsTriggerRoute
+  ApiSpeechTranscribeRoute: typeof ApiSpeechTranscribeRoute
   ApiTelephonyEventsRoute: typeof ApiTelephonyEventsRoute
   ApiTestCallRoute: typeof ApiTestCallRoute
 }
@@ -264,6 +315,13 @@ declare module '@tanstack/react-router' {
       path: '/enrol'
       fullPath: '/enrol'
       preLoaderRoute: typeof AuthenticatedEnrolRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/family': {
+      id: '/_authenticated/family'
+      path: '/family'
+      fullPath: '/family'
+      preLoaderRoute: typeof AuthenticatedFamilyRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/test-controls': {
@@ -329,6 +387,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDemoMockVerifyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/sensors/door': {
+      id: '/api/sensors/door'
+      path: '/api/sensors/door'
+      fullPath: '/api/sensors/door'
+      preLoaderRoute: typeof ApiSensorsDoorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/sensors/trigger': {
+      id: '/api/sensors/trigger'
+      path: '/api/sensors/trigger'
+      fullPath: '/api/sensors/trigger'
+      preLoaderRoute: typeof ApiSensorsTriggerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/speech/transcribe': {
+      id: '/api/speech/transcribe'
+      path: '/api/speech/transcribe'
+      fullPath: '/api/speech/transcribe'
+      preLoaderRoute: typeof ApiSpeechTranscribeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/telephony/events': {
       id: '/api/telephony/events'
       path: '/api/telephony/events'
@@ -350,6 +429,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedAnalyticsRoute: typeof AuthenticatedAnalyticsRoute
   AuthenticatedCasesRoute: typeof AuthenticatedCasesRoute
   AuthenticatedEnrolRoute: typeof AuthenticatedEnrolRoute
+  AuthenticatedFamilyRoute: typeof AuthenticatedFamilyRoute
   AuthenticatedTestControlsRoute: typeof AuthenticatedTestControlsRoute
   AuthenticatedEldersIdRoute: typeof AuthenticatedEldersIdRoute
 }
@@ -358,6 +438,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAnalyticsRoute: AuthenticatedAnalyticsRoute,
   AuthenticatedCasesRoute: AuthenticatedCasesRoute,
   AuthenticatedEnrolRoute: AuthenticatedEnrolRoute,
+  AuthenticatedFamilyRoute: AuthenticatedFamilyRoute,
   AuthenticatedTestControlsRoute: AuthenticatedTestControlsRoute,
   AuthenticatedEldersIdRoute: AuthenticatedEldersIdRoute,
 }
@@ -376,6 +457,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSignupRoute: ApiAuthSignupRoute,
   ApiCronTickRoute: ApiCronTickRoute,
   ApiDemoMockVerifyRoute: ApiDemoMockVerifyRoute,
+  ApiSensorsDoorRoute: ApiSensorsDoorRoute,
+  ApiSensorsTriggerRoute: ApiSensorsTriggerRoute,
+  ApiSpeechTranscribeRoute: ApiSpeechTranscribeRoute,
   ApiTelephonyEventsRoute: ApiTelephonyEventsRoute,
   ApiTestCallRoute: ApiTestCallRoute,
 }

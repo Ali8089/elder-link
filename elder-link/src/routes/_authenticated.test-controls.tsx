@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PhoneCall } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -8,8 +8,10 @@ import { useI18n } from "@/lib/i18n";
 import { SAMPLE_ANSWERS } from "@/lib/telephony";
 import { CALL_SCRIPT } from "@/lib/script";
 import type { Outcome } from "@/lib/engine";
-import { advanceCaseChain, demoCall, runDueCheckIns, triggerSensor } from "@/lib/orchestrator";
+import { advanceCaseChain, demoCall, runDueCheckIns, triggerSensorViaEndpoint } from "@/lib/orchestrator";
 import { CantoneseDemoCall } from "@/components/CantoneseDemoCall";
+import { selectVoiceEngine, speechIsAvailable } from "@/lib/voice";
+import { selectConversationEngine } from "@/lib/conversation";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_authenticated/test-controls")({
@@ -23,6 +25,19 @@ export const Route = createFileRoute("/_authenticated/test-controls")({
   }),
   component: TestControls,
 });
+
+/**
+ * A fresh id for one dashboard-triggered door-open episode.
+ *
+ * Each click must be a distinct episode, or the UNIQUE constraint on
+ * `sensor_alerts.external_id` would correctly treat the second click as a
+ * duplicate and decline to call — the caregiver would think it had failed.
+ * The `ui-` prefix mirrors the poller's `door:` and the old `sim-` convention,
+ * and the slice+timestamp keeps it stable in shape while unique in value.
+ */
+function makeEpisodeId(elderId: string): string {
+  return `ui-${elderId.slice(0, 8)}-${Date.now()}`;
+}
 
 function TestControls() {
   const { t, lang } = useI18n();
@@ -41,13 +56,56 @@ function TestControls() {
   });
   const target = elderId || elders.data?.[0]?.id || "";
 
+  // Speech recognition is offered only when a recogniser is configured. Without
+  // one the call falls back to the keypad, which is the more accessible input
+  // for this audience anyway.
+  const voiceEngine = useMemo(() => {
+    const env = import.meta.env as Record<string, string | undefined>;
+    const assets: Record<string, string> = {
+      disclosure: "/audio/disclosure.mp3",
+      ask: "/audio/ask.mp3",
+      safe: "/audio/safe.mp3",
+      worry: "/audio/worry.mp3",
+      danger: "/audio/danger.mp3",
+      unclear: "/audio/unclear.mp3",
+      no_answer: "/audio/no_answer.mp3",
+      close: "/audio/close.mp3",
+    };
+    return selectVoiceEngine(env, assets);
+  }, []);
+
+  // The conversational layer. Uses the same Groq key when present, so one key
+  // turns on both speech recognition and natural replies; otherwise this is the
+  // deterministic Cantonese script.
+  const conversationEngine = useMemo(() => {
+    const env = import.meta.env as Record<string, string | undefined>;
+    return selectConversationEngine(env);
+  }, []);
+
+  // Ask the server whether it can actually transcribe, rather than guessing
+  // from a client-side key. The "Answer by voice" control is shown only when
+  // this comes back true, so it is never a button that does nothing.
+  const speech = useQuery({
+    queryKey: ["speech-available"],
+    queryFn: () => speechIsAvailable(),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+
   async function run(fn: () => Promise<unknown>) {
     setBusy(true);
     try {
-      const r = (await fn()) as { outcome?: string; step?: string } | number;
+      const r = (await fn()) as { outcome?: string; step?: string; ok?: boolean; error?: string } | number;
+      // A resolved value that reports failure is still a failure. The old code
+      // only caught thrown errors, so a `{ ok: false }` result — which is what
+      // a rejected Supabase write produces — fell straight through to the
+      // success toast. Surface it instead: silence is the bug.
+      if (typeof r !== "number" && r && r.ok === false) {
+        throw new Error(r.error ?? "Action failed");
+      }
       toast.success(typeof r === "number" ? `${r} job(s) run` : `${t(r.outcome ?? "")} → ${r.step === "retry" ? t("retryScheduled") : r.step}`);
     } catch (e) {
-      toast.error((e as Error).message);
+      toast.error(e instanceof Error && e.message ? e.message : String(e));
     }
     setBusy(false);
     qc.invalidateQueries();
@@ -94,7 +152,7 @@ function TestControls() {
         </fieldset>
         <div className="flex flex-wrap gap-3 md:col-span-2">
           <Button className="h-12" disabled={busy || !target} onClick={() => runOutcome(outcome)}>{t("demoCall")}</Button>
-          <Button variant="destructive" className="h-12" disabled={busy || !target} onClick={() => run(() => triggerSensor(target, SAMPLE_ANSWERS[outcome]))}>{t("triggerSensor")}</Button>
+          <Button variant="destructive" className="h-12" disabled={busy || !target} onClick={() => run(() => triggerSensorViaEndpoint(target, makeEpisodeId(target)))}>{t("triggerSensor")}</Button>
           <Button variant="outline" className="h-12" disabled={busy} onClick={() => run(() => runDueCheckIns(SAMPLE_ANSWERS[outcome]))}>{t("runDue")}</Button>
           <Button variant="outline" className="h-12" disabled={busy} onClick={() => run(async () => {
             const r = await supabase.from("call_jobs").update({ due_at: new Date().toISOString() }).eq("status", "queued").eq("kind", "retry").select("id");
@@ -109,6 +167,9 @@ function TestControls() {
         <p className="text-sm text-muted-foreground">{t("demoCallNote")}</p>
         <CantoneseDemoCall
           elderName={elders.data?.find((e) => e.id === target)?.display_name ?? ""}
+          voiceEngine={speech.data?.available ? voiceEngine : undefined}
+          speechUnavailableReason={speech.data?.available ? undefined : speech.data?.reason}
+          conversationEngine={conversationEngine}
           onComplete={(r) => {
             // The captured answer is applied through the same runner a live call uses,
             // so the dashboard, escalation chain and analytics react identically.
