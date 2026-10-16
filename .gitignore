@@ -48,3 +48,24 @@ supabase/.temp/
 
 # Test / build artefacts produced by scripts
 e2e-shots/
+
+# Screenshots and generated captures — not source
+out/
+demo-shots/
+artifacts/
+
+# Large reference material kept on disk but not in version control.
+# prd_pages/ is a PDF rendered to 23 PNGs (~8 MB); the source PDF lives in
+# Completedetails/. Committing both was bloating the repo for no benefit.
+prd_pages/
+
+# --- Removed from the repo, kept on disk -------------------------------------
+# Completedetails.zip was an 8.4 MB archive of Completedetails/, which is also
+# committed. PRD_GEN_AI.pdf (12 MB) was committed twice — at the root and in
+# Completedetails/. Both were dropped to stop duplicating ~29 MB of binaries.
+Completedetails.zip
+/PRD_GEN_AI.pdf
+*.zip
+
+# Temporary safety backup made during repo cleanup — safe to delete once verified
+_cleanup-backup-*/
