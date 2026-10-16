@@ -98,4 +98,14 @@ Migrations (run in order in the Supabase SQL Editor):
 
 ## Deployment
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for the Vercel walkthrough, environment variables, cron options and the go-live checklist.
+Deploy with Vercel using the standard flow:
+
+1. Import the repo at vercel.com and set the project root to `elder-link/`.
+2. Build command: `npm run build:vercel`. Output is Nitro's Vercel preset.
+3. Add the environment variables listed in `.env.example` (Supabase URL and keys,
+   plus the telephony/cron values you intend to use).
+4. Run the Supabase migrations in `supabase/migrations/` in filename order
+   (`0000` core, then `0001` additive).
+5. Cron: `vercel.json` registers the scheduler against `/api/cron/tick`.
+6. Checklist before go-live: confirm `VITE_DEMO_MODE` is off for production,
+   the cron route is reachable, and a staff account can sign in.
