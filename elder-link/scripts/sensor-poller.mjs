@@ -21,6 +21,32 @@
 // copy cannot silently drift.
 
 import { setTimeout as sleep } from "node:timers/promises";
+import { readFileSync } from "node:fs";
+
+// Load .env before reading any config.
+//
+// Without this the script silently used its placeholder defaults — the wrong
+// elder id and no trigger URL — so an alarm was detected and then never turned
+// into a call, with nothing in the output saying why. Real environment
+// variables still win, so `SENSOR_URL=... node scripts/sensor-poller.mjs`
+// keeps working.
+function loadDotEnv(file = ".env") {
+  let text;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch {
+    return; // no .env is fine: CI and explicit env vars are both legitimate
+  }
+  for (const line of text.split(/\r?\n/)) {
+    if (!line || line.startsWith("#")) continue;
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (!m) continue;
+    const key = m[1];
+    if (process.env[key] !== undefined) continue; // real env wins
+    process.env[key] = m[2].trim().replace(/^["']|["']$/g, "");
+  }
+}
+loadDotEnv();
 
 const DEVICE_URL = process.env["SENSOR_URL"] ?? "http://10.129.230.175/data";
 const DEVICE_ID = process.env["SENSOR_DEVICE_ID"] ?? "10.129.230.175";
@@ -28,6 +54,8 @@ const ELDER_ID = process.env["SENSOR_ELDER_ID"] ?? "55555555-5555-4555-8555-5555
 const ELDER_LABEL = process.env["SENSOR_ELDER_LABEL"] ?? "周伯";
 const INTERVAL_MS = Number(process.env["SENSOR_POLL_MS"] ?? 2000);
 const TIMEOUT_MS = Number(process.env["SENSOR_TIMEOUT_MS"] ?? 4000);
+/** Where to POST a confirmed alarm so the app places the call. */
+const TRIGGER_URL = process.env["SENSOR_TRIGGER_URL"];
 /** The device's web page, which reports its status as text. Derived from SENSOR_URL. */
 const PAGE_URL = process.env["SENSOR_PAGE_URL"] ?? DEVICE_URL.replace(/\/data\/?$/, "/");
 
@@ -155,14 +183,13 @@ async function fetchReading() {
  * and the escalation rules all live in the one place that already owns them.
  */
 async function startCall(episodeId) {
-  const endpoint = process.env["SENSOR_TRIGGER_URL"];
-  if (!endpoint) {
+  if (!TRIGGER_URL) {
     log(`[would call] ${ELDER_LABEL} (${ELDER_ID}) episode=${episodeId}`);
     log("           set SENSOR_TRIGGER_URL to actually place the call");
     return;
   }
   try {
-    const res = await fetch(endpoint, {
+    const res = await fetch(TRIGGER_URL, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -216,6 +243,10 @@ async function pollOnce() {
 
 log(`watching ${simulateAlarm ? "(simulated alarm)" : DEVICE_URL} every ${INTERVAL_MS}ms`);
 log(`mapped to ${ELDER_LABEL} (${ELDER_ID})`);
+// Print the resolved call target, not just the sensor: a poller that detects an
+// alarm but has nowhere to send it looks identical to a working one until the
+// moment it silently does nothing.
+log(TRIGGER_URL ? `calls will be placed via ${TRIGGER_URL}` : "SENSOR_TRIGGER_URL not set — alarms will NOT place calls");
 if (usePageText) log(`reading the device's own status text from ${PAGE_URL}`);
 
 if (once) {

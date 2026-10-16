@@ -71,8 +71,12 @@ const server = createServer((req, res) => {
   );
 });
 
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`fake door sensor on http://127.0.0.1:${PORT}  mode=${mode}`);
+// Bind to all interfaces so a phone on the same Wi-Fi can reach it — the whole
+// point of driving the detector from a phone during a demo. Pass FAKE_HOST to
+// pin it back to loopback if that is not wanted.
+const HOST = process.env["FAKE_HOST"] ?? "0.0.0.0";
+server.listen(PORT, HOST, () => {
+  console.log(`fake door sensor on http://${HOST}:${PORT}  mode=${mode}`);
   console.log(`  GET /data -> ${JSON.stringify(reading())}`);
   console.log(`  GET /mode/<${MODES.join("|")}> to switch state`);
 });

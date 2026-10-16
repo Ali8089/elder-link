@@ -1,0 +1,1575 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<meta name="theme-color" content="#0a0a0c" />
+<!-- Ask the browser to run this as a standalone app so the address bar is gone
+     when it is launched from the home screen. The Fullscreen API covers the
+     in-browser case; these cover the installed case. -->
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="ElderLink" />
+<!-- Never serve this page from cache. A phone that has previously loaded an
+     older build will otherwise keep showing it, which is exactly how a fixed
+     bug appears to still be present. -->
+<meta http-equiv="Cache-Control" content="no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<title>Elder Link — 來電</title>
+<link rel="icon" href="/favicon.ico" />
+
+<!--
+  The web app manifest is what makes "Add to Home Screen" produce a real
+  fullscreen app rather than a bookmark.
+
+  This matters because Chrome for Android will NOT grant the Fullscreen API to a
+  normal web page, tap or no tap — so in a browser tab the address bar and the
+  Android navigation bar cannot be removed at all. Launched from the home screen
+  with display:fullscreen, there is no browser UI to remove: it is simply gone.
+  Installed mode is the only way to get a genuinely chrome-free call screen on
+  Android, so the manifest is a functional requirement here, not a nicety.
+-->
+<link rel="manifest" href="/manifest.webmanifest" />
+
+<!--
+  The simulated incoming call.
+
+  This is the phone-side twin of the app's CantoneseDemoCall component. The
+  elder taps through the same experience the React app gives: a call arrives, it
+  is answered, the caller speaks the care script in Cantonese, and the elder
+  answers either by voice or by tapping one of the scripted replies.
+
+  Why a standalone page rather than a route in the app:
+    * it must run on the elder's phone straight from the demo server, with no
+      bundle step and nothing to install;
+    * the whole point of the demo is that the call is *received* by a device
+      that is not the operator's laptop.
+
+  What it reuses rather than reimplements:
+    * public/call-script.js   — the 44-section branching script
+    * public/call-classify.js — the safety classifier (danger/worrying/safe/unclear)
+    * public/audio/call/*.mp3 — the same free Google-TTS Cantonese clips
+    * POST /app/api/speech/transcribe — the app's server-keyed Whisper route,
+      used when a provider is configured
+
+  The incoming screen is built to look like a real phone call, not like a web
+  page. A real call is the only kind an elderly person answers without
+  hesitation, and anything that looks like a web form is a reason to hang up.
+  So: near-black screen, the caller's name large enough to read at arm's length,
+  a green answer button on the left and a red decline on the right — the layout
+  they have used for twenty years.
+
+  Voice input has two routes, tried in this order:
+    1. the app's Whisper endpoint, when a key is configured there;
+    2. the browser's own SpeechRecognition (Web Speech API), which needs no key,
+       no install and no server — and is the default on the elder's phone.
+  The button is only disabled if *neither* exists, which is now rare.
+
+  Safety rules carried over from the app, all deliberate:
+    * the closing music plays ONLY after a "safe" outcome; over a danger line it
+      would talk across "call 999";
+    * an unrecognised answer is never treated as fine — it repeats once (S12),
+      then escalates (S14);
+    * a caption is shown for every line even if audio fails, so the elder is
+      never left with silence and no feedback;
+    * the call cannot be answered without a tap, because browsers refuse to play
+      audio before a user gesture.
+-->
+
+<style>
+  :root {
+    color-scheme: dark;
+
+    /* The reference is WhatsApp's incoming-call screen: a near-black ground with
+       a warm mauve glow rising from the lower right, not a flat dark blue. */
+    --ink: #0a0a0c;
+    --glow-a: #2b1b2e;   /* deep plum, upper middle */
+    --glow-b: #6b4a45;   /* warm smoke, lower right */
+    --glow-c: #1b1a24;   /* near-black violet, mid */
+
+    --text: #f2f2f4;
+    --muted: #a8a8ad;
+    --dim: #7d7d84;
+
+    --answer: #1faf54;   /* WhatsApp green — answer is always green */
+    --decline: #e0372c;  /* WhatsApp red  — decline is always red */
+
+    --radius: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans HK",
+      "PingFang HK", "Microsoft JhengHei", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--ink);
+    color: var(--text);
+    overflow: hidden;
+    /* Nothing on this screen is selectable. A text selection — with its
+       handles and the "copy / share" loupe — is the single clearest sign that
+       this is a web page rather than a call, and it appeared over the
+       transcript during real testing. Applied with !important and to every
+       descendant so no bubble can re-enable it. */
+    user-select: none !important;
+    -webkit-user-select: none !important;
+    -webkit-touch-callout: none;
+  }
+  #screen, #screen * { user-select: none !important; -webkit-user-select: none !important; }
+  /* Long-press on a call screen must not open a context menu either. */
+  #screen { touch-action: manipulation; }
+
+  /* ------------------------------------------------------------- shell */
+  #screen {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    /* env() keeps the name clear of the notch and the buttons clear of the
+       home indicator, which is what makes it fill the screen like a real call
+       rather than sitting in a letterbox. */
+    padding: max(10px, env(safe-area-inset-top)) 22px max(14px, env(safe-area-inset-bottom));
+    overflow: hidden;
+  }
+
+  /* The background is two soft lights over near-black, which is what gives the
+     reference its depth. Painted on a pseudo-element so it can cross-fade
+     between call states without repainting the whole layout. */
+  #screen::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background:
+      radial-gradient(120% 80% at 88% 78%, var(--glow-b) 0%, transparent 58%),
+      radial-gradient(110% 70% at 22% 34%, var(--glow-a) 0%, transparent 62%),
+      linear-gradient(180deg, #060608 0%, var(--glow-c) 58%, #211c25 100%);
+    transition: filter 0.5s ease, opacity 0.5s ease;
+  }
+  /* A call that has gone wrong gets a cold, warning cast; the layout does not
+     move, so the change is felt rather than re-read. */
+  #screen.danger::before { filter: saturate(1.35) hue-rotate(-18deg) brightness(1.08); }
+  #screen.ended::before  { opacity: 0.55; }
+
+  #screen > * { position: relative; z-index: 1; }
+
+  /* --------------------------------------------------------- top status */
+  .topbar {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: center;
+    padding-top: 2.2vh;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 15px 7px 11px;
+    border-radius: 999px;
+    background: rgba(20,20,24,0.62);
+    backdrop-filter: blur(9px);
+    -webkit-backdrop-filter: blur(9px);
+    font-size: 15px;
+    color: #e9e9ec;
+    letter-spacing: 0.1px;
+  }
+  /* The little "HD" tile is the one piece of colour in the top bar. */
+  .hd {
+    display: grid;
+    place-items: center;
+    min-width: 24px; height: 18px;
+    padding: 0 4px;
+    border-radius: 4px;
+    background: #f2f2f4;
+    color: #101014;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+  }
+  #statusPill { display: none; }         /* shown only while the call is up */
+  #incomingPill { display: inline-flex; }
+
+  /* ------------------------------------------------------- caller name */
+  .identity {
+    flex: 0 0 auto;
+    text-align: center;
+    padding-top: 5vh;
+  }
+  .caller {
+    /* Sized so the three-word caller name still fills the width without
+       breaking mid-phrase on a 390px screen. It stays the loudest thing on
+       the glass, which is the point — an elder must be able to read who is
+       calling from arm's length. */
+    font-size: clamp(36px, 10.4vw, 58px);
+    font-weight: 700;
+    line-height: 1.12;
+    letter-spacing: -0.6px;
+    text-wrap: balance;
+    margin: 0 auto;
+    max-width: 12ch;
+    /* A name this large on a dark ground needs a hair of shadow or it floats. */
+    text-shadow: 0 2px 18px rgba(0,0,0,0.5);
+  }
+  .sub {
+    margin-top: 10px;
+    font-size: 15px;
+    color: var(--muted);
+  }
+  .sub.warn { color: #ffc86b; }
+
+  /* -------------------------------------------------------- mid marker */
+  /* The reference carries a faint "Missed call: Aug 27" line at about 70%
+     height. Here it carries the real information for this call — the elapsed
+     time once answered, and the reason the call was placed.
+     While ringing it is a flexible spacer so the name sits high and the buttons
+     sit low, which is the vertical rhythm of every phone's call screen. Once
+     answered it yields that space to the transcript. */
+  .middle {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 9px;
+    min-height: 0;
+    padding-bottom: 3vh;
+  }
+  /* Ringing: the note sits low, just above the buttons, and the space above it
+     is what pushes the name to the top third. */
+  #screen.incoming .middle { justify-content: flex-end; }
+  /* Answered: the transcript needs the room, so the marker stops centring. */
+  #screen.active .middle { flex: 0 0 auto; justify-content: center; padding-bottom: 0; }
+  .midnote {
+    font-size: 15px;
+    color: var(--dim);
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+  }
+  .midnote .glyph { font-size: 20px; opacity: 0.75; }
+  #timer { font-variant-numeric: tabular-nums; font-size: 17px; color: #cfcfd4; }
+  #reasonChip { display: none; }
+  /* Once the call is up, the name sits above the elapsed time; showing the
+     "通話中" subtitle as well would say the same thing twice. */
+  #screen.active #statusLine,
+  #screen.ended  #statusLine { display: none; }
+
+  /* --------------------------------------------------------- transcript */
+  /* Only ever used once the call is answered. Kept visually quiet: this is the
+     call's content, not its chrome, and it must not compete with the buttons. */
+  .transcript {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 4px 2px 10px;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    scrollbar-width: none;
+  }
+  .transcript::-webkit-scrollbar { display: none; }
+  .turn { display: flex; }
+  .turn.them { justify-content: flex-start; }
+  .turn.me   { justify-content: flex-end; }
+  .bubble {
+    max-width: 88%;
+    padding: 11px 15px;
+    border-radius: 18px;
+    font-size: 17px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    background: rgba(255,255,255,0.10);
+    backdrop-filter: blur(7px);
+    -webkit-backdrop-filter: blur(7px);
+  }
+  .turn.them .bubble { border-bottom-left-radius: 5px; }
+  .turn.me .bubble {
+    background: rgba(31,175,84,0.22);
+    border-bottom-right-radius: 5px;
+  }
+  .bubble .zh { display: block; }
+  .bubble .en { display: block; margin-top: 6px; font-size: 13px; color: var(--muted); }
+  .turn.me .bubble .en { color: rgba(255,255,255,0.62); }
+  .sys {
+    align-self: center;
+    font-size: 13px;
+    color: var(--dim);
+    text-align: center;
+    padding: 2px 10px;
+  }
+
+  /* -------------------------------------------------------------- alert */
+  #alert {
+    display: none;
+    margin: 0 0 10px;
+    padding: 13px 16px;
+    border-radius: 16px;
+    background: rgba(224,55,44,0.20);
+    border: 1px solid rgba(224,55,44,0.55);
+    color: #ffe2df;
+    font-size: 16px;
+    line-height: 1.5;
+    text-align: center;
+  }
+  #alert.show { display: block; }
+  #alert strong { color: #fff; }
+
+  /* ------------------------------------------------------------ answers */
+  .opts {
+    flex: 0 0 auto;
+    display: none;
+    flex-direction: column;
+    gap: 9px;
+    padding-bottom: 6px;
+  }
+  .opt {
+    width: 100%;
+    text-align: left;
+    padding: 15px 17px;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(255,255,255,0.09);
+    backdrop-filter: blur(7px);
+    -webkit-backdrop-filter: blur(7px);
+    color: var(--text);
+    font-size: 17px;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.05s ease;
+  }
+  .opt:active { transform: scale(0.985); background: rgba(255,255,255,0.16); }
+  .opt .zh { display: block; }
+  .opt .en { display: block; margin-top: 4px; font-size: 13px; color: var(--muted); }
+  .opt[disabled] { opacity: 0.45; }
+
+  /* ----------------------------------------------------------- controls */
+  .controls { flex: 0 0 auto; }
+
+  /* The answer / decline pair, laid out exactly like the reference: two big
+     circles, green left, red right, with a label under each. */
+  .answerRow {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 0 8px;
+  }
+  .answerCol {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    flex: 1 1 0;
+  }
+  .circle {
+    width: 74px; height: 74px;
+    border-radius: 50%;
+    border: none;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    color: #fff;
+    transition: transform 0.08s ease, box-shadow 0.2s ease;
+  }
+  .circle:active { transform: scale(0.93); }
+  .circle svg { width: 34px; height: 34px; }
+  .circle.answer {
+    background: var(--answer);
+    box-shadow: 0 10px 30px rgba(31,175,84,0.42);
+    animation: ring 1.5s ease-in-out infinite;
+  }
+  .circle.decline {
+    background: var(--decline);
+    box-shadow: 0 10px 30px rgba(224,55,44,0.40);
+  }
+  /* A slow halo, not a bounce: it should read as "this is ringing" from across
+     a room without drawing the eye away from the name. */
+  @keyframes ring {
+    0%,100% { box-shadow: 0 10px 30px rgba(31,175,84,0.42); }
+    50%     { box-shadow: 0 10px 42px rgba(31,175,84,0.78), 0 0 0 9px rgba(31,175,84,0.10); }
+  }
+  .answerCol .label { font-size: 13px; color: var(--muted); }
+
+  /* "Send message" sits under the pair in the reference; here it dismisses the
+     call and records that the elder could not talk — which is useful signal,
+     not a dead end. */
+  .quickRow {
+    display: flex;
+    justify-content: center;
+    gap: 22px;
+    padding: 16px 0 4px;
+  }
+  .quick {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 6px 10px;
+  }
+  .quick:active { color: #fff; }
+
+  /* In-call controls (mic, repeat, hang up). */
+  .talkRow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 10px 0 6px;
+  }
+  .ctrl {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(7px);
+    -webkit-backdrop-filter: blur(7px);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+  }
+  .ctrl:active { transform: scale(0.94); }
+  .ctrl svg { width: 25px; height: 25px; }
+  .ctrl.end { background: var(--decline); }
+  .ctrl.rec { background: var(--decline); animation: pulse 1.05s ease-in-out infinite; }
+  .ctrl[disabled] { opacity: 0.42; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+  .ctrlWrap { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .ctrlWrap .label { font-size: 12px; color: var(--muted); }
+
+  .hint {
+    text-align: center;
+    font-size: 13px;
+    color: var(--dim);
+    padding-top: 8px;
+  }
+  /* The one line of status a real call shows under its button — "listening…",
+     "call ended". Never a control, just information. */
+  .hintLine {
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+    padding-top: 10px;
+    min-height: 18px;
+  }
+  .level {
+    height: 4px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.14);
+    overflow: hidden;
+    margin: 12px auto 0;
+    width: 62%;
+  }
+  .level > i {
+    display: block; height: 100%; width: 0%;
+    background: var(--answer);
+    transition: width 0.08s linear;
+  }
+
+  /* The home-indicator bar from the reference. Purely decorative, but its
+     absence is the single clearest "this is a web page" tell. */
+  .homebar {
+    flex: 0 0 auto;
+    width: 118px; height: 5px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.85);
+    margin: 12px auto 0;
+  }
+  .homebar.gone { display: none; }
+
+  /* ------------------------------------------------------- state switches */
+  #screen.incoming .transcript,
+  #screen.incoming .opts { display: none; }
+  #screen.active .transcript { display: flex; }
+  #screen.active #incomingPill { display: none; }
+  #screen.active #statusPill { display: inline-flex; }
+  #screen.active #answerRow { display: none; }
+  #screen.incoming #talkRow,
+  #screen.incoming #alert,
+  #screen.incoming .level,
+  #screen.incoming .hint { display: none; }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="screen" class="incoming">
+
+  <!-- top status pill: "HD Incoming call", then "HD 通話中" once answered -->
+  <div class="topbar">
+    <span class="pill" id="incomingPill">
+      <span class="hd">HD</span><span id="incomingLabel">Incoming call</span>
+    </span>
+    <span class="pill" id="statusPill">
+      <span class="hd">HD</span><span id="activeLabel">通話中</span>
+    </span>
+  </div>
+
+  <!-- caller identity -->
+  <div class="identity">
+    <div class="caller" id="callerName">Elderly care team</div>
+    <div class="sub" id="statusLine">來電中…</div>
+    <div id="reasonChip"></div>
+  </div>
+
+  <!-- mid marker: elapsed time / reason, at the reference's 70% band -->
+  <div class="middle" id="middle">
+    <div class="midnote" id="midnote">
+      <span class="glyph" id="midGlyph">📞</span>
+      <span id="midText">Elder Link 關懷來電</span>
+    </div>
+    <div id="timer" class="hidden">00:00</div>
+  </div>
+
+  <!-- conversation (answer state only) -->
+  <div class="transcript" id="transcript"></div>
+
+  <div id="alert" role="alert"></div>
+
+  <!-- scripted answers (answer state only) -->
+  <div class="opts" id="opts"></div>
+
+  <div class="controls">
+    <!-- the answer / decline pair -->
+    <div class="answerRow" id="answerRow">
+      <div class="answerCol">
+        <button class="circle answer" id="acceptBtn" aria-label="接聽">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.2.4 2.4.6 3.7.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.6 21 3 13.4 3 4c0-.6.4-1 1-1h3.4c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.7.1.4 0 .8-.2 1l-2.2 2.1z"/>
+          </svg>
+        </button>
+        <span class="label">接聽</span>
+      </div>
+      <div class="answerCol">
+        <button class="circle decline" id="declineBtn" aria-label="拒絕">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .27-.11.52-.29.7l-2.48 2.48a.996.996 0 0 1-.71.29c-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85a.996.996 0 0 1-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>
+          </svg>
+        </button>
+        <span class="label">拒絕</span>
+      </div>
+    </div>
+
+    <!-- "Send message"-style row -->
+    <div class="quickRow" id="quickRow">
+      <button class="quick" id="cantTalkBtn">唔方便講電話</button>
+    </div>
+
+    <!-- The only in-call control: hang up.
+         A real call has exactly one button on this screen, and it is the red
+         one. The mic, replay and answer controls were removed deliberately —
+         they read as a web form, which is the one thing this screen must not
+         look like. The microphone is opened automatically during the accept
+         tap, and listening restarts by itself after each question, so nothing
+         needs pressing for the elder to be heard. -->
+    <div class="talkRow hidden" id="talkRow">
+      <div class="ctrlWrap">
+        <button class="ctrl end" id="hangupBtn" aria-label="掛斷">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .27-.11.52-.29.7l-2.48 2.48a.996.996 0 0 1-.71.29c-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85a.996.996 0 0 1-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>
+          </svg>
+        </button>
+        <span class="label">掛斷</span>
+      </div>
+    </div>
+
+    <div class="level hidden" id="levelWrap"><i id="levelBar"></i></div>
+    <div class="hintLine hidden" id="hintLine"></div>
+  </div>
+
+  <div class="homebar" id="homebar"></div>
+</div>
+
+<script type="module">
+// The `?v=` on these imports is a cache-buster. The page and its script are
+// edited together, and a phone that cached one of them can otherwise pair a new
+// page with an old script — which shows up as "the fix didn't work".
+import { SCRIPT, OPENING_FOR, CALLER_NAME, CAST, ESCALATE, SYSTEM_NOTE } from "/call-script.js?v=10";
+import { classifyCantonese, matchOption, briefNote } from "/call-classify.js?v=10";
+
+/* ------------------------------------------------------------------ config */
+
+const params = new URLSearchParams(location.search);
+
+const CFG = {
+  // Which opening to use. `sensor` = the door alarm rang; `scheduled` = S1.
+  trigger: params.get("trigger") || "sensor",
+  // Where the app's speech-recognition route lives. Proxied through /app by
+  // demo-server.mjs, so it is same-origin and needs no second firewall rule.
+  speechEndpoint: "/app/api/speech/transcribe",
+  // Locally pre-generated Cantonese clips.
+  audioBase: "/audio/call/",
+  // How long to keep the line open after a question, in ms. Generous: the
+  // audience is elderly and may need to put the phone down.
+  answerWindowMs: 45_000,
+  // How long one voice recording runs before it is transcribed.
+  recordingMs: 14_000,
+  // How long the browser recogniser listens before giving up on one answer.
+  listenMs: 12_000,
+  // Elder identity, sent to the app when the call ends so the outcome is
+  // recorded against the right person. Matches the live demo elder.
+  elderId: params.get("elder") || "0ec7a7ef-d938-45f1-b0dd-d741bcd84726",
+  // Set to "1" to always start on the incoming screen even when the page is
+  // opened by the operator rather than by a real alarm.
+  forceIncoming: params.get("incoming") === "1",
+};
+
+/* -------------------------------------------------------------------- state */
+
+const S = {
+  stage: "incoming",       // incoming | active | ended
+  nodeId: null,
+  node: null,
+  awaiting: null,          // the options the elder may choose, if any
+  startedAt: 0,
+  timerId: null,
+  answerTimer: null,
+  soundOn: false,
+  heard: [],               // what the elder said or tapped, in order
+  outcome: null,           // danger | worrying | safe | unclear
+  escalated: false,
+  busy: false,
+  wakeLock: null,
+  // Which voice route is live: "whisper" | "browser" | "none".
+  voiceRoute: "none",
+  // True while auto-listening has been turned off by the elder.
+  listenPaused: false,
+};
+
+/* ------------------------------------------------------------- dom helpers */
+
+const $ = (id) => document.getElementById(id);
+const screen       = $("screen");
+const callerNameEl = $("callerName");
+const statusLine   = $("statusLine");
+const reasonChip   = $("reasonChip");
+const timerEl      = $("timer");
+const midnote      = $("midnote");
+const midText      = $("midText");
+const transcript   = $("transcript");
+const alertBox     = $("alert");
+const optsEl       = $("opts");
+const answerRow    = $("answerRow");
+const quickRow     = $("quickRow");
+const talkRow      = $("talkRow");
+const levelWrap    = $("levelWrap");
+const levelBar     = $("levelBar");
+const hintLine     = $("hintLine");
+const homebar      = $("homebar");
+
+/* ------------------------------------------------------------------ audio */
+
+/**
+ * Plays one Cantonese clip.
+ *
+ * Returns true when the clip played. A missing clip is not an error: the
+ * transcript caption is already on screen, and the browser voice covers it, so
+ * a partially generated script still runs rather than going silent.
+ */
+function playClip(sectionId, index) {
+  return new Promise((resolve) => {
+    const url = `${CFG.audioBase}${sectionId}-${index}.mp3`;
+    const a = new Audio(url);
+    a.preload = "auto";
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    a.onended = () => done(true);
+    a.onerror = () => done(false);
+    // A clip that never fires onended must not stall the call.
+    setTimeout(() => done(false), 20_000);
+    a.play().then(() => { S.soundOn = true; }).catch(() => done(false));
+  });
+}
+
+/**
+ * Speaks Cantonese with the platform voice.
+ *
+ * Used for any line with no pre-recorded clip. Browsers ship Cantonese voices
+ * on most platforms; where none exists the caption still carries the words, so
+ * the elder is never left with a blank screen.
+ */
+function speak(text) {
+  return new Promise((resolve) => {
+    if (!("speechSynthesis" in window)) return resolve(false);
+    try {
+      const synth = window.speechSynthesis;
+      const u = new SpeechSynthesisUtterance(text);
+      const voices = synth.getVoices();
+      const voice =
+        voices.find((v) => /^yue/i.test(v.lang)) ??
+        voices.find((v) => /zh[-_]HK/i.test(v.lang)) ??
+        voices.find((v) => /zh/i.test(v.lang));
+      if (voice) u.voice = voice;
+      u.lang = voice?.lang ?? "zh-HK";
+      u.rate = 0.9;   // slightly slow: the audience is elderly
+      u.pitch = 1;
+      let settled = false;
+      const done = () => { if (!settled) { settled = true; resolve(true); } };
+      u.onend = done;
+      u.onerror = done;
+      setTimeout(done, 12_000);
+      synth.speak(u);
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+/** Plays one spoken line: the clip if there is one, the browser voice if not. */
+async function say(sectionId, index, line) {
+  const bubble = addTurn("them", line.zh, line.en);
+  const played = await playClip(sectionId, index);
+  if (!played) {
+    bubble.dataset.novoice = "1";
+    await speak(line.zh);
+  }
+  await wait(260);
+}
+
+/** Closing music, only ever after a safe call. */
+function playClosingMusic() {
+  return new Promise((resolve) => {
+    const a = new Audio("/audio/closing-music.wav");
+    a.volume = 0.18;
+    a.onended = () => resolve();
+    setTimeout(resolve, 6_000);
+    a.play().catch(() => resolve());
+  });
+}
+
+/* --------------------------------------------------------------------- ui */
+
+function wait(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+/**
+ * Adds one turn to the transcript.
+ *
+ * Cantonese is always the primary line and English always the translation
+ * beneath it — never the other way round. The elder reads the Cantonese; the
+ * English exists so a carer or the operator can follow the call. `lang` is set
+ * so the Cantonese renders with the right glyph variants rather than being
+ * shaped as generic Chinese.
+ */
+function addTurn(who, zh, en) {
+  const wrap = document.createElement("div");
+  wrap.className = `turn ${who}`;
+  const b = document.createElement("div");
+  b.className = "bubble";
+
+  const main = document.createElement("span");
+  main.className = "zh";
+  main.lang = "yue-Hant-HK";
+  main.textContent = zh;
+  b.appendChild(main);
+
+  if (en) {
+    const e = document.createElement("span");
+    e.className = "en";
+    e.lang = "en";
+    e.textContent = en;      // the translation of the Cantonese above
+    b.appendChild(e);
+  }
+  wrap.appendChild(b);
+  transcript.appendChild(wrap);
+  transcript.scrollTop = transcript.scrollHeight;
+  return b;
+}
+
+function addSystem(text) {
+  const d = document.createElement("div");
+  d.className = "sys";
+  d.textContent = text;
+  transcript.appendChild(d);
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+function showOpts(options) {
+  optsEl.innerHTML = "";
+  if (!options || !options.length) { optsEl.style.display = "none"; return; }
+  options.forEach((opt, i) => {
+    const b = document.createElement("button");
+    b.className = "opt";
+
+    // Cantonese first, English underneath as the translation. Same rule as the
+    // transcript: the elder reads the Cantonese.
+    const zh = document.createElement("span");
+    zh.className = "zh";
+    zh.lang = "yue-Hant-HK";
+    zh.textContent = opt.zh;
+    b.appendChild(zh);
+
+    if (opt.en) {
+      const e = document.createElement("span");
+      e.className = "en";
+      e.lang = "en";
+      e.textContent = opt.en;
+      b.appendChild(e);
+    }
+    b.onclick = () => choose(i);
+    optsEl.appendChild(b);
+  });
+  optsEl.style.display = "flex";
+}
+
+function clearOpts() { optsEl.innerHTML = ""; optsEl.style.display = "none"; }
+
+function setAlert(html) {
+  if (!html) { alertBox.classList.remove("show"); alertBox.innerHTML = ""; return; }
+  alertBox.innerHTML = html;
+  alertBox.classList.add("show");
+}
+
+/**
+ * A single quiet line under the hang-up button.
+ *
+ * This replaces the old mic/replay control row. A real call has no controls, so
+ * the listening state is reported the way a phone does it — as text, not as
+ * another button to press. Kept to one line and never required to proceed.
+ */
+function setHint(text) {
+  if (!hintLine) return;
+  hintLine.textContent = text || "";
+  hintLine.classList.toggle("hidden", !text);
+}
+
+function startTimer() {
+  S.startedAt = Date.now();
+  timerEl.classList.remove("hidden");
+  midnote.classList.add("hidden");
+  const tick = () => {
+    const s = Math.floor((Date.now() - S.startedAt) / 1000);
+    timerEl.textContent =
+      `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  };
+  tick();
+  S.timerId = setInterval(tick, 1000);
+}
+
+/* ---------------------------------------------------------------- fullscreen */
+
+/**
+ * Takes the page fullscreen so the browser chrome disappears and the screen is
+ * nothing but the call.
+ *
+ * The incoming screen is what the elder sees first, so that is what must be
+ * fullscreen — waiting until they accept leaves the address bar and the Android
+ * navigation bar showing for the whole ringing phase, which is the exact moment
+ * the illusion matters most.
+ *
+ * Every browser requires a user gesture for fullscreen, so it cannot simply be
+ * requested on load. Instead the *first* tap anywhere counts: tapping anywhere
+ * on the incoming screen (including the answer button) goes fullscreen before
+ * anything else happens. `armFullscreenOnFirstTap()` wires that up.
+ *
+ * It must never break the call if it is refused (desktop browsers, iOS Safari
+ * on some versions, or a host that disallows it). Every failure path is silent
+ * on purpose: a call that rings is better than an error dialog about chrome.
+ */
+async function goFullscreen() {
+  const el = document.documentElement;
+  try {
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      const req = el.requestFullscreen ?? el.webkitRequestFullscreen;
+      if (req) {
+        // `navigationUI: "hide"` is what removes the address bar rather than
+        // just scaling the page up inside it.
+        await req.call(el, { navigationUI: "hide" });
+      }
+    }
+  } catch {
+    // iOS Safari refuses requestFullscreen on non-element-scoped calls and on
+    // some versions entirely. The PWA metas above cover the installed case, and
+    // the layout is already viewport-fit cover, so it still fills the glass.
+    // Fall through to the scroll trick below rather than giving up.
+  }
+  collapseAddressBar();
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+
+/**
+ * The mobile-browser fallback for hiding the address bar.
+ *
+ * Chrome on Android will not grant the Fullscreen API to a normal page without
+ * a deliberate gesture, but it *does* retract the address bar when the page is
+ * scrolled. Nudging the scroll a pixel past the top (and back) triggers that
+ * retraction on every Android build we have seen. It is harmless where it does
+ * nothing: the page is a fixed-height call screen, so it cannot actually move.
+ */
+function collapseAddressBar() {
+  try {
+    window.scrollTo(0, 1);
+    // Only if the browser accepted the scroll; some ignore it entirely.
+    if (window.scrollY !== 0) window.scrollTo(0, 0);
+    document.documentElement.style.height = "100%";
+    document.body.style.height = "100%";
+  } catch { /* purely cosmetic — never let this break the call */ }
+}
+
+/**
+ * Goes fullscreen on the first tap, and keeps trying until it succeeds.
+ *
+ * Bound in the capture phase so it runs before the tap's own handler and the
+ * fullscreen request is made while the gesture is still unambiguously valid.
+ *
+ * It deliberately does NOT use `once: true`. A single attempt can be refused —
+ * and a refusal is invisible, so the address bar silently stays for the whole
+ * call. Re-arming until `document.fullscreenElement` is actually set means the
+ * next tap retries. Once fullscreen is entered the listeners remove themselves,
+ * so later taps cannot re-request it: an elder must always be able to leave.
+ */
+function armFullscreenOnFirstTap() {
+  const onFirstTap = () => {
+    void goFullscreen().then((entered) => {
+      if (!entered) return; // stay armed and retry on the next tap
+      document.removeEventListener("pointerdown", onFirstTap, true);
+      document.removeEventListener("keydown", onFirstTap, true);
+      document.removeEventListener("touchstart", onFirstTap, true);
+    });
+  };
+  document.addEventListener("pointerdown", onFirstTap, true);
+  document.addEventListener("keydown", onFirstTap, true);
+  // Some Android WebViews only report a gesture for touchstart; pointerdown can
+  // arrive too late to be trusted for a fullscreen request.
+  document.addEventListener("touchstart", onFirstTap, true);
+}
+
+function exitFullscreen() {
+  try {
+    if (document.fullscreenElement) document.exitFullscreen?.();
+  } catch { /* nothing to do */ }
+}
+
+/* ------------------------------------------------------------------- flow */
+
+function nodeFor(id) {
+  const n = SCRIPT[id];
+  if (!n) throw new Error(`missing script section ${id}`);
+  return n;
+}
+
+/**
+ * Runs a section: speak its lines, then either continue, offer options, or end.
+ *
+ * `speakOverride` lets S12 repeat the question that preceded it rather than
+ * repeating its own wording, which is what the script asks for.
+ */
+async function runNode(id, speakOverride) {
+  stopListening();
+  S.nodeId = id;
+  S.node = nodeFor(id);
+  const node = S.node;
+  S.busy = true;
+  clearOpts();
+  setAlert("");
+
+  const lines = speakOverride ?? node.say ?? [];
+  for (let i = 0; i < lines.length; i++) {
+    await say(id, i + 1, lines[i]);
+  }
+
+  // Danger wording must be impossible to miss on screen as well as in audio.
+  if (node.danger) {
+    setAlert("<strong>緊急：請即刻打 999。</strong><br/>同時已經通知你女兒同中心職員。");
+    screen.className = "active danger";
+    markEscalation(node.id);
+  }
+  if (node.unsafe) {
+    setAlert("<strong>你唔係一個人。</strong><br/>想傾可以打 999，或者 18111（24 小時）。");
+    screen.className = "active danger";
+    markEscalation(node.id);
+  }
+
+  if (node.options && node.options.length) {
+    S.awaiting = node.options;
+    S.busy = false;
+    showOpts(node.options);
+    startAnswerWindow();
+    // Listening opens by itself, so the elder only has to talk. This is the
+    // difference between a voice feature and a voice call.
+    beginListening();
+    return;
+  }
+
+  if (node.next) return void runNode(node.next);
+  if (node.end) return void finish();
+  // A section with nothing to say and nowhere to go would stall the call.
+  finish();
+}
+
+/** The elder tapped one of the scripted replies. */
+function choose(index) {
+  const opts = S.awaiting;
+  if (!opts || !opts[index]) return;
+  stopAnswerWindow();
+  stopListening();
+  const opt = opts[index];
+  S.awaiting = null;
+  clearOpts();
+  addTurn("me", opt.zh, opt.en);
+
+  // Safety is judged on meaning, not on which button was pressed, so the same
+  // classifier that reads speech also reads a tap.
+  noteOutcome(classifyCantonese(opt.zh));
+
+  if (!opt.go) return void finish();
+  runNode(opt.go);
+}
+
+/** Records what the elder said. Taps and speech share one path. */
+function noteOutcome(kind) {
+  if (kind === "danger") S.outcome = "danger";
+  else if (kind === "worrying" && S.outcome !== "danger") S.outcome = "worrying";
+  else if (kind === "safe" && !S.outcome) S.outcome = "safe";
+  else if (kind === "unclear" && !S.outcome) S.outcome = "unclear";
+}
+
+function markEscalation(id) {
+  S.escalated = true;
+  const note = SYSTEM_NOTE[id];
+  addSystem(note ? `⚑ ${note}` : "⚑ 已即時轉介真人同事跟進。");
+}
+
+/* ------------------------------------------------------- answer window */
+
+function startAnswerWindow() {
+  stopAnswerWindow();
+  S.answerTimer = setTimeout(() => {
+    // The elder may simply be slow. Offer the repeat rather than assuming the
+    // worst — S12 is the script's own answer to a question that went unheard.
+    addSystem("（未收到回應）");
+    runNode("S12");
+  }, CFG.answerWindowMs);
+}
+function stopAnswerWindow() {
+  if (S.answerTimer) { clearTimeout(S.answerTimer); S.answerTimer = null; }
+}
+
+/* ------------------------------------------------------- voice recognition */
+
+let recState = null;      // Whisper recording session (MediaRecorder)
+let listener = null;      // browser SpeechRecognition session
+let listenTimer = null;
+
+/**
+ * Decides which voice route is available, once, at call start.
+ *
+ * Order matters. The browser's own recogniser is preferred because it needs no
+ * key, no server and no install — on a phone it is simply there. Whisper is
+ * kept as the server route for hosts where the browser API is missing (notably
+ * Firefox) or where a provider has been configured and gives better Cantonese.
+ */
+async function pickVoiceRoute() {
+  // The browser recogniser is checked first and is the default: no key, no
+  // server, no install, and it exists on essentially every phone this demo
+  // targets. It is checked synchronously, so a slow or failing network can
+  // never leave the call with no voice route at all.
+  if (browserRecognition()) S.voiceRoute = "browser";
+
+  // If the app *also* has a provider configured, prefer it: it is the same
+  // engine the app itself uses, so the demo and the product agree. Wrapped so a
+  // hanging endpoint cannot stall the call.
+  try {
+    if (await whisperAvailable()) S.voiceRoute = "whisper";
+  } catch { /* keep whatever we already had */ }
+
+  updateVoiceUi();
+  return S.voiceRoute;
+}
+
+function browserRecognition() {
+  return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+}
+
+async function whisperAvailable() {
+  try {
+    const r = await fetch(CFG.speechEndpoint, { cache: "no-store" });
+    if (!r.ok) return false;
+    const j = await r.json();
+    return !!j.available;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reports which voice route is live.
+ *
+ * With the control row gone there is no button to disable — so this now only
+ * decides what the status line says, and whether the elder is told to tap an
+ * option instead of speaking.
+ */
+function updateVoiceUi() {
+  if (S.voiceRoute === "none") setHint("請撳下面嘅選項回答");
+  else if (S.awaiting) setHint("請講嘢，或者撳下面嘅選項");
+}
+
+/**
+ * Opens a microphone stream and keeps it for the call.
+ *
+ * This is a *convenience*, not a requirement, and that distinction is the fix
+ * for the mic bug: the browser's own SpeechRecognition opens its own audio path
+ * and does not use this stream at all. Treating a failure here as "no voice
+ * available" disabled the recogniser route too — so on any device where this
+ * particular call was refused (a dismissed permission prompt, the mic busy in
+ * another app, no mic at all), the elder was silently dropped to tapping only.
+ *
+ * Failure is now reported and contained: the route is left alone, and the
+ * recogniser still gets its chance when listening starts.
+ */
+let micStream = null;
+let micWarned = false;
+
+async function openMic() {
+  if (micStream) return micStream;
+  if (!navigator.mediaDevices?.getUserMedia) return null;
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+    return micStream;
+  } catch (e) {
+    // Say it once, and only as information — the recogniser route is untouched
+    // and may well still work, since it asks for the microphone itself.
+    if (!micWarned) {
+      micWarned = true;
+      console.warn("[elderlink] mic stream unavailable:", e?.name || e?.message);
+    }
+    return null;
+  }
+}
+
+/**
+ * Starts the browser recogniser for one answer.
+ *
+ * Continuous mode with interim results, bounded by CFG.listenMs, because an
+ * elderly speaker often pauses mid-sentence and a single-shot recogniser would
+ * cut them off after the first word.
+ */
+function beginListening() {
+  if (S.voiceRoute !== "browser") return;
+  if (S.listenPaused) return;
+  if (listener) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+
+  let finalText = "";
+  try {
+    const r = new SR();
+    listener = r;
+    r.lang = "zh-HK";         // Cantonese, as the script is written
+    r.continuous = true;
+    r.interimResults = true;
+    r.maxAlternatives = 1;
+
+    r.onresult = (ev) => {
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const res = ev.results[i];
+        if (res.isFinal) finalText += res[0].transcript;
+        else setHint(`聽到：${(res[0].transcript || "").slice(0, 18)}…`);
+      }
+    };
+    r.onerror = (ev) => {
+      // "no-speech" is the common, harmless one — the elder simply did not
+      // speak. Anything else is reported once, without breaking the call.
+      if (ev.error !== "no-speech" && ev.error !== "aborted") {
+        console.warn("[elderlink] recognition error:", ev.error);
+      }
+    };
+    r.onend = () => {
+      listener = null;
+      const said = finalText.trim();
+      if (!said) {
+        // Nothing heard: reset the hint and let the answer window keep running,
+        // so a quiet elder is not treated as an unclear answer.
+        setHint(S.awaiting ? "可以講嘢或者撳下面嘅選項" : "");
+        return;
+      }
+      setHint("");
+      handleSpeech(said);
+    };
+
+    r.start();
+    setHint("請講嘢…");
+    levelWrap.classList.remove("hidden");
+    pulseLevel();
+    // Bound the attempt so the call never sits in "listening" forever.
+    listenTimer = setTimeout(() => stopListening(), CFG.listenMs);
+  } catch (e) {
+    listener = null;
+    console.warn("[elderlink] could not start recognition:", e.message);
+  }
+}
+
+/** Cosmetic level bar. Uses the real stream when it is open. */
+function pulseLevel() {
+  let t = 0;
+  const tick = () => {
+    if (!listener) { levelBar.style.width = "0%"; return; }
+    t += 0.18;
+    const v = 22 + Math.abs(Math.sin(t)) * 58;
+    levelBar.style.width = `${v.toFixed(0)}%`;
+    requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+function stopListening() {
+  if (listenTimer) { clearTimeout(listenTimer); listenTimer = null; }
+  const r = listener;
+  listener = null;
+  if (r) { try { r.stop(); } catch { /* already stopped */ } }
+}
+
+/** One finished utterance, from either route. */
+function handleSpeech(text) {
+  stopAnswerWindow();
+  addTurn("me", text);
+  const kind = classifyCantonese(text);
+  noteOutcome(kind);
+  routeAnswer(text, kind);
+}
+
+/**
+ * The manual route: tap the mic, record, transcribe with Whisper.
+ *
+ * Kept for hosts without the browser API, and because some elders will prefer
+ * pressing a button to being listened to continuously.
+ */
+async function startRecording() {
+  if (recState) return;
+  const stream = await openMic();
+  if (!stream) return;
+  stopListening();
+
+  recState = { stream, chunks: [], rec: null, stopAt: 0 };
+  const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+    ? "audio/webm;codecs=opus"
+    : (MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "");
+  const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+  recState.rec = rec;
+  rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) recState.chunks.push(ev.data); };
+
+  const done = new Promise((resolve) => { rec.onstop = () => resolve(); });
+
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ac.createMediaStreamSource(stream);
+    const an = ac.createAnalyser();
+    an.fftSize = 512;
+    src.connect(an);
+    const buf = new Uint8Array(an.frequencyBinCount);
+    const pump = () => {
+      if (!recState) return;
+      an.getByteFrequencyData(buf);
+      let sum = 0;
+      for (const v of buf) sum += v;
+      const pct = Math.min(100, (sum / buf.length) * 2.6);
+      levelBar.style.width = `${pct.toFixed(0)}%`;
+      recState.raf = requestAnimationFrame(pump);
+    };
+    recState.ac = ac;
+    levelWrap.classList.remove("hidden");
+    pump();
+  } catch { /* the level bar is cosmetic; recording continues without it */ }
+
+  setHint("錄音中…講完撳一下停止");
+  rec.start();
+  recState.stopAt = setTimeout(() => stopRecording(), CFG.recordingMs);
+  await done;
+}
+
+async function stopRecording() {
+  if (!recState) return;
+  const st = recState;
+  recState = null;
+  clearTimeout(st.stopAt);
+  if (st.raf) cancelAnimationFrame(st.raf);
+  try { if (st.rec && st.rec.state !== "inactive") st.rec.stop(); } catch { /* noop */ }
+  await wait(120);
+  levelWrap.classList.add("hidden");
+  levelBar.style.width = "0%";
+
+  const blob = new Blob(st.chunks, { type: "audio/webm" });
+  if (!blob.size) {
+    addSystem("（聽唔到聲音）");
+    return void handleUnclear();
+  }
+  setHint("辨認緊你講嘅嘢…");
+  const text = await transcribe(blob);
+  setHint("");
+  if (!text) return void handleUnclear();
+  handleSpeech(text);
+}
+
+async function transcribe(blob) {
+  try {
+    const fd = new FormData();
+    fd.append("audio", blob, "answer.webm");
+    const r = await fetch(CFG.speechEndpoint, { method: "POST", body: fd });
+    if (!r.ok) return "";
+    const j = await r.json();
+    return (j.text || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Routes what was heard.
+ *
+ * The safety floor is absolute: nothing here can reach a "fine" branch unless
+ * the words actually said so. A danger phrase short-circuits to S5/S6 whatever
+ * question was on the table, because a person reporting chest pain should not
+ * have to fit their answer into the option we happened to offer.
+ */
+function routeAnswer(text, kind) {
+  stopAnswerWindow();
+
+  if (kind === "danger") {
+    const t = text;
+    if (/跌|起身唔到|起唔到身|摔/.test(t)) return void runNode("S6");
+    return void runNode("S5");
+  }
+
+  const opts = S.awaiting;
+  S.awaiting = null;
+  clearOpts();
+
+  if (opts) {
+    const i = matchOption(text, opts);
+    if (i >= 0) {
+      const opt = opts[i];
+      if (!opt.go) return void finish();
+      return void runNode(opt.go);
+    }
+  }
+
+  // Nothing matched and it was not clearly safe: the script's own rule is to
+  // repeat once (S12), then escalate (S14). Never guess.
+  handleUnclear();
+}
+
+function handleUnclear() {
+  if (S.nodeId === "S12") return void runNode("S14");
+  runNode("S12");
+}
+
+/* ---------------------------------------------------------------- finish */
+
+async function finish() {
+  stopAnswerWindow();
+  stopListening();
+  if (recState) await stopRecording();
+  S.stage = "ended";
+  screen.className = "ended";
+  clearOpts();
+  talkRow.classList.add("hidden");
+  levelWrap.classList.add("hidden");
+  setHint("");
+
+  // Music only ever follows a safe call. Sounded over a danger line it would
+  // play straight across "please call 999".
+  if ((S.outcome ?? "unclear") === "safe" && !S.escalated) {
+    await playClosingMusic();
+  }
+
+  statusLine.textContent = "已結束";
+  if (S.timerId) { clearInterval(S.timerId); S.timerId = null; }
+  releaseWakeLock();
+  micStream?.getTracks().forEach((t) => t.stop());
+  micStream = null;
+
+  const summary = {
+    outcome: S.outcome ?? "unclear",
+    answered: true,
+    escalated: S.escalated,
+    sections: S.heard,
+    endedAt: new Date().toISOString(),
+  };
+  addSystem(
+    `通話結束 · 結果：${labelOutcome(summary.outcome)}` +
+      (summary.escalated ? " · 已轉介真人" : ""),
+  );
+
+  // Tell the app, so the outcome lands in the same store the door-alarm call
+  // uses. Best-effort: a failed report must not look like a failed call.
+  report(summary);
+
+  // On the phone the call is simply over. Give a way back to the alarm page,
+  // and a way to end fullscreen so the operator can reach their browser again.
+  answerRow.classList.add("hidden");
+  quickRow.classList.remove("hidden");
+  quickRow.innerHTML = "";
+  const again = document.createElement("button");
+  again.className = "quick";
+  again.textContent = "再打一次";
+  again.onclick = () => location.reload();
+  const back = document.createElement("button");
+  back.className = "quick";
+  back.textContent = "返回警報頁";
+  back.onclick = () => { location.href = "/phone-alert.html"; };
+  const leaveFs = document.createElement("button");
+  leaveFs.className = "quick";
+  leaveFs.textContent = "退出全螢幕";
+  leaveFs.onclick = exitFullscreen;
+  quickRow.append(again, back, leaveFs);
+  homebar.classList.remove("gone");
+}
+
+function labelOutcome(o) {
+  return { safe: "一切正常", worrying: "需要跟進", danger: "緊急", unclear: "未能確認" }[o] ?? o;
+}
+
+async function report(summary) {
+  try {
+    await fetch("/app/api/sensors/door", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        // A call the elder answered is recorded as such; the trigger secret is
+        // not needed for this path because the page is not claiming a sensor
+        // event, only reporting a completed call.
+        elderId: CFG.elderId,
+        kind: "call-outcome",
+        outcome: summary.outcome,
+        escalated: summary.escalated,
+      }),
+    });
+  } catch { /* best effort */ }
+}
+
+/* -------------------------------------------------------------- controls */
+
+async function accept() {
+  if (S.stage !== "incoming") return;
+  S.stage = "active";
+
+  // Everything that needs a user gesture happens here, while the tap is still
+  // valid: fullscreen, the wake lock, and the microphone request.
+  goFullscreen();
+  keepAwake();
+  openMic();
+
+  screen.className = "active";
+  answerRow.classList.add("hidden");
+  quickRow.classList.add("hidden");
+  talkRow.classList.remove("hidden");
+  statusLine.textContent = "通話中";
+  homebar.classList.add("gone");
+  midnote.classList.add("hidden");
+  startTimer();
+
+  if (CFG.trigger === "sensor") {
+    reasonChip.textContent = "門口感應器提示";
+  }
+
+  // Never block the call on this: the audio starts whatever the recogniser
+  // situation is, and the button state is corrected when the answer is known.
+  pickVoiceRoute();
+
+  const opening = OPENING_FOR[CFG.trigger] ?? OPENING_FOR.sensor;
+  runNode(opening);
+}
+
+function decline() {
+  if (S.stage !== "incoming") return;
+  S.stage = "ended";
+  clearOpts();
+  stopListening();
+  statusLine.textContent = "已拒絕";
+  answerRow.classList.add("hidden");
+  quickRow.classList.add("hidden");
+  addSystem("你拒絕咗呢個來電。");
+  finish();
+}
+
+async function hangup() {
+  stopAnswerWindow();
+  await finish();
+}
+
+/** "Can't talk now" — records the signal and ends cleanly. */
+function cantTalk() {
+  stopAnswerWindow();
+  stopListening();
+  S.outcome = S.outcome ?? "worrying";
+  addSystem("你話唔方便講電話，已經通知同事稍後再打。");
+  finish();
+}
+
+/* -------------------------------------------------------------- wake lock */
+
+async function keepAwake() {
+  try { S.wakeLock = await navigator.wakeLock?.request("screen"); } catch { /* optional */ }
+}
+function releaseWakeLock() { try { S.wakeLock?.release?.(); } catch { /* noop */ } S.wakeLock = null; }
+
+/* ---------------------------------------------------------------- wiring */
+
+$("acceptBtn").onclick  = accept;
+$("declineBtn").onclick = decline;
+$("hangupBtn").onclick  = hangup;
+$("cantTalkBtn").onclick = cantTalk;
+
+// Go fullscreen the moment the elder touches the screen for the first time —
+// i.e. on the *incoming* screen, not only once they accept. Browsers require a
+// gesture for this, and the first touch is the earliest one available.
+armFullscreenOnFirstTap();
+
+// A long press must not open the browser's context menu — on a call screen that
+// reads instantly as "this is a web page".
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+
+// Some kiosk-style browsers and installed PWAs allow fullscreen without a
+// gesture. Try once on load; if it is refused the first-tap handler above
+// covers it, so nothing is lost.
+goFullscreen();
+
+// There is no mic or replay button any more. Voice is opened during the accept
+// tap and listening restarts itself after each question, so the call needs no
+// controls beyond hanging up. Tapping anywhere on the transcript still restarts
+// listening, which is the one gesture a confused elder is likely to try.
+transcript.addEventListener("click", () => {
+  if (S.stage !== "active") return;
+  if (S.voiceRoute === "none") return;
+  if (listener) return;
+  stopAnswerWindow();
+  beginListening();
+});
+
+// Voices populate asynchronously on some platforms; a late arrival is fine
+// because the clip is the primary voice anyway.
+if ("speechSynthesis" in window) {
+  window.speechSynthesis.getVoices();
+  window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+}
+
+// Never leave the answer window running after the tab is hidden — the elder
+// has put the phone down, and firing S12 at them from a backgrounded tab would
+// be both confusing and wrong.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && S.stage === "active") { stopAnswerWindow(); stopListening(); }
+});
+
+callerNameEl.textContent = CALLER_NAME;
+// Debug hook. `hearForTest` lets an automated check push a phrase through the
+// same path the recogniser uses, so the speech-to-branch join can be tested
+// without a real microphone.
+window.__elderLinkCall = {
+  S, SCRIPT, choose, accept, finish, beginListening,
+  hearForTest: (text) => handleSpeech(String(text ?? "")),
+  // Lets a check drive the real mic-open path (and its failure handling)
+  // without needing a physical microphone.
+  openMicForTest: () => { micStream = null; return openMic(); },
+};
+</script>
+</body>
+</html>

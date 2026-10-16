@@ -1,0 +1,20 @@
+{
+  "name": "Elder Link — 關懷來電",
+  "short_name": "ElderLink",
+  "description": "Elder Link door-alarm screen and Cantonese care call for Hong Kong elders living alone.",
+  "start_url": "/phone-alert.html",
+  "scope": "/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#0a0a0c",
+  "theme_color": "#0a0a0c",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon",
+      "purpose": "any"
+    }
+  ]
+}

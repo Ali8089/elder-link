@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useRole } from "@/hooks/useRole";
 import { useScheduler } from "@/hooks/useScheduler";
-import { AutoCallPlayer } from "@/components/AutoCallPlayer";
+import { LiveCallBanner } from "@/components/LiveCallBanner";
 import { LangSwitch, useI18n } from "@/lib/i18n";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -91,12 +91,14 @@ export function Layout() {
         <Outlet />
       </main>
       {/*
-        Mounted in the layout, not on a page: the mock provider cannot make a
-        sound on the server, so the only way a caregiver HEARS a call is if a
-        browser plays it. Putting this here means every staff screen can hear
-        an elder being called, rather than only the call-controls page.
+        Mounted in the layout, not on a page: a door-sensor alarm can start a
+        call from any of several places (the phone, the local app, the cron
+        tick), so the banner has to be visible on every staff screen rather than
+        only on the call-controls page. It reads the database — not an in-memory
+        signal — so it appears whichever instance placed the call, and it shows
+        only; the call itself is placed on the elder's phone.
       */}
-      <AutoCallPlayer />
+      <LiveCallBanner />
     </div>
   );
 }

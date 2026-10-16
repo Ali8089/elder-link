@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1020">
+<!-- Installed from the home screen this page has no browser chrome at all,
+     which is the only way to get a genuinely full-screen alarm on Android
+     (Chrome refuses the Fullscreen API to a normal tab). See the manifest. -->
+<link rel="manifest" href="/manifest.webmanifest">
+<title>看門警報 · Door Alert</title>
+<style>
+  :root{
+    --bg:#0b1020; --card:#151c33; --card2:#1d2745;
+    --ink:#eef2ff; --dim:#93a0c4; --line:#2a3560;
+    --calm:#22c55e; --warn:#f59e0b; --alarm:#ef4444; --dead:#64748b;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--ink);
+    font:16px/1.45 -apple-system,BlinkMacSystemFont,"PingFang HK","Noto Sans HK",system-ui,sans-serif;
+    padding:16px calc(16px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+    overscroll-behavior:none;
+  }
+  h1{font-size:19px;margin:0 0 2px}
+  .sub{color:var(--dim);font-size:12px;margin-bottom:16px}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:12px}
+  .card h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:0 0 10px;font-weight:600}
+
+  /* --- live status --- */
+  .status{display:flex;align-items:center;gap:12px;padding:18px 16px;border-radius:16px;
+          background:var(--card);border:1px solid var(--line);margin-bottom:12px;transition:background .25s}
+  .dot{width:16px;height:16px;border-radius:50%;background:var(--dead);flex:none;box-shadow:0 0 0 0 transparent}
+  .dot.pulse{animation:pulse 1s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(239,68,68,.75)}70%{box-shadow:0 0 0 18px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
+  .status .big{font-size:20px;font-weight:700;letter-spacing:.01em}
+  .status .meta{margin-left:auto;text-align:right;font-size:12px;color:var(--dim);line-height:1.35}
+  .status[data-state="CALM"] .dot{background:var(--calm)}
+  .status[data-state="OPEN"] .dot{background:var(--warn)}
+  .status[data-state="ALARM"]{background:#3a1116;border-color:#7f1d1d}
+  .status[data-state="ALARM"] .dot{background:var(--alarm)}
+  .status[data-state="OFFLINE"] .dot{background:var(--dead)}
+
+  /* --- form --- */
+  label{display:block;font-size:12px;color:var(--dim);margin:10px 0 4px}
+  input,select{width:100%;background:var(--card2);border:1px solid var(--line);color:var(--ink);
+               border-radius:10px;padding:11px 12px;font-size:15px;font-family:inherit}
+  input:focus,select:focus{outline:2px solid #3b82f6;outline-offset:1px}
+  .row{display:flex;gap:10px}
+  .row>*{flex:1}
+  .check{display:flex;align-items:center;gap:9px;margin-top:12px;font-size:14px;color:var(--ink)}
+  .check input{width:20px;height:20px;flex:none;accent-color:#3b82f6}
+
+  button.act{width:100%;margin-top:14px;padding:14px;border-radius:12px;border:0;font-size:16px;
+             font-weight:700;font-family:inherit;background:#3b82f6;color:#fff}
+  button.act.alt{background:var(--card2);color:var(--ink);border:1px solid var(--line);font-weight:600}
+  button.act:disabled{opacity:.45}
+
+  /* --- log --- */
+  #log{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);
+       max-height:190px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0}
+  #log b{color:var(--ink)}
+  .kpi{display:flex;gap:8px;margin-bottom:10px}
+  .kpi div{flex:1;background:var(--card2);border-radius:10px;padding:8px 10px;text-align:center}
+  .kpi .n{font-size:19px;font-weight:700}
+  .kpi .l{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+
+  .warnbox{background:#3a2a06;border:1px solid #7c5308;color:#fde68a;border-radius:12px;
+           padding:11px 13px;font-size:12.5px;line-height:1.5;margin-bottom:12px}
+  .warnbox b{color:#fff}
+  .mono{font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);
+        background:#0a0f1f;border:1px solid var(--line);border-radius:8px;padding:7px 9px;
+        word-break:break-all;margin-bottom:9px}
+  table.dbg{width:100%;border-collapse:collapse;font-size:11.5px}
+  table.dbg td{padding:3px 0;vertical-align:top;border-bottom:1px solid #222c4d}
+  table.dbg td:first-child{color:var(--dim);width:38%;white-space:nowrap}
+  table.dbg td:last-child{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
+  .ok{color:#4ade80}.bad{color:#f87171}.meh{color:#fcd34d}
+  details summary{color:var(--dim);font-size:12px;cursor:pointer;margin-top:8px}
+  details p{font-size:12.5px;color:var(--dim);line-height:1.6}
+  code{background:#0a0f1f;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
+</style>
+</head>
+<body>
+
+<h1>看門警報 <span style="color:var(--dim);font-weight:400">Door Alert</span></h1>
+<div class="sub">同 Wi-Fi 下輪詢門感應器 · 響警報就喺手機彈出</div>
+
+<div class="warnbox" id="audioWarn" hidden>
+  <b>🔇 請先解鎖音效</b><br>
+  手機瀏覽器唔准未經手勢就播聲。撳下面「啟用音效」一次，之後警報先會響。
+</div>
+
+<div class="status" id="status" data-state="IDLE">
+  <div class="dot"></div>
+  <div>
+    <div class="big" id="statusText">未開始</div>
+    <div id="statusSub" style="font-size:12px;color:var(--dim)">撳下面開始監測</div>
+  </div>
+  <div class="meta" id="statusMeta">—</div>
+</div>
+
+<div class="card">
+  <h2>感應器設定</h2>
+
+  <label for="url">感應器網址（/data）</label>
+  <input id="url" type="url" inputmode="url" autocomplete="off"
+         value="/sensor/data" spellcheck="false">
+
+  <div class="row">
+    <div>
+      <label for="interval">每隔幾秒檢查</label>
+      <input id="interval" type="number" min="1" max="60" step="1" value="2" inputmode="numeric">
+    </div>
+    <div>
+      <label for="timeout">超時（秒）</label>
+      <input id="timeout" type="number" min="1" max="30" step="1" value="4" inputmode="numeric">
+    </div>
+  </div>
+
+  <label for="cooldown">重複響聲冷靜期（秒）</label>
+  <input id="cooldown" type="number" min="10" max="600" step="10" value="60" inputmode="numeric">
+
+  <label for="elder">長者標籤（只作顯示）</label>
+  <input id="elder" type="text" value="周伯" autocomplete="off">
+
+  <div class="check">
+    <input id="autoCall" type="checkbox" checked>
+    <label for="autoCall" style="margin:0;font-size:14px;color:var(--ink)">警報時自動彈出關懷來電（Elderly care team）</label>
+  </div>
+
+  <div class="check">
+    <input id="callme" type="checkbox">
+    <label for="callme" style="margin:0;font-size:14px;color:var(--ink)">同時致電我（試用模式：撳落去撥號）</label>
+  </div>
+  <input id="mynumber" type="tel" inputmode="tel" placeholder="+85270515646" autocomplete="tel"
+         style="margin-top:8px" value="+85270515646">
+
+  <div class="check">
+    <!-- On by default: the alarm must reach the app that places the call, not
+         merely sound a siren. The demo server also pre-fills the secret. -->
+    <input id="notifyRunner" type="checkbox" checked>
+    <label for="notifyRunner" style="margin:0;font-size:14px;color:var(--ink)">警報時自動通知 App 打電話（要網址＋密鑰）</label>
+  </div>
+  <div id="runnerFields" hidden>
+    <label for="runnerUrl">App 感應器端點</label>
+    <input id="runnerUrl" type="url" inputmode="url" spellcheck="false"
+           value="/app/api/sensors/door">
+    <label for="runnerSecret">密鑰（SENSOR_TRIGGER_SECRET）</label>
+    <input id="runnerSecret" type="password" autocomplete="off" placeholder="x-sensor-secret">
+    <label for="elderId">長者 ID（elderId）</label>
+    <input id="elderId" type="text" autocomplete="off" spellcheck="false"
+           value="0ec7a7ef-d938-45f1-b0dd-d741bcd84726">
+  </div>
+</div>
+
+<button class="act" id="start">開始監測</button>
+<button class="act alt" id="testAlert" style="margin-top:8px">測試警報（響一次）</button>
+<button class="act alt" id="testCall" style="margin-top:8px">測試關懷來電 📞（Elderly care team）</button>
+<button class="act alt" id="enableAudio" style="margin-top:8px">啟用音效 🔊</button>
+
+<div class="card" style="margin-top:12px">
+  <h2>狀態</h2>
+  <div class="kpi">
+    <div><div class="n" id="kPolls">0</div><div class="l">檢查</div></div>
+    <div><div class="n" id="kAlarms">0</div><div class="l">警報</div></div>
+    <div><div class="n" id="kFails">0</div><div class="l">失敗</div></div>
+  </div>
+  <div id="log"></div>
+</div>
+
+<!-- Live diagnostic readout. Exists so a failure can be described precisely
+     from the phone instead of guessed at: it shows the exact request URL, what
+     the last poll returned, and the raw bytes received. -->
+<div class="card" id="debugCard">
+  <h2>診斷 Diagnostics</h2>
+  <div class="mono" id="dbgUrl">—</div>
+  <table class="dbg">
+    <tr><td>last poll at</td><td id="dbgAt">—</td></tr>
+    <tr><td>HTTP status</td><td id="dbgStatus">—</td></tr>
+    <tr><td>raw body</td><td id="dbgBody">—</td></tr>
+    <tr><td>parsed</td><td id="dbgParsed">—</td></tr>
+    <tr><td>error</td><td id="dbgErr">—</td></tr>
+    <tr><td>page origin</td><td id="dbgOrigin">—</td></tr>
+  </table>
+  <button class="act alt" id="dbgOnce" style="margin-top:10px">單次測試 Fetch now</button>
+</div>
+
+<details class="card">
+  <summary>點用？（同埋有咩限制）</summary>
+  <p>
+    <b>1. 手機要同感應器同一個 Wi-Fi。</b> 個 ESP32 用 <code>10.245.139.176</code> 呢類內網 IP，
+    街外連唔到。手機轉 4G/5G 或者換 Wi-Fi 就會變「離線」。<br>
+    <b>2. 要部手機開住呢頁，屏幕最好唔好熄。</b> 瀏覽器後台會凍結計時器；iOS Safari 特別嚴。
+    想穩陣就開「引導式存取」或者一路叉電擺喺枱面。<br>
+    <b>3. 一定要撳一次「啟用音效」。</b> 唔撳嘅話手機唔准播聲，只會震同彈橫幅。<br>
+    <b>4. 警報響起會點：</b> 手機會震同響，然後自動彈出
+    <b>「Elderly care team」</b>嘅來電畫面。撳「接聽」就會用粵語讀出關懷對話，
+    你可以用<b>語音</b>或者<b>揀選項</b>回答。<br>
+    <b>5. 想即時試：</b> 撳下面「測試關懷來電」就可以，唔使等警報。<br>
+    <b>6. 真正自動打電話（冇人接都打）：</b> 喺 app 跑
+    <code>node scripts/sensor-poller.mjs</code>。呢頁係「手機收到來電」嘅版本。
+  </p>
+</details>
+
+<!--
+  The red "Answer the call" full-screen banner used to live here. It has been
+  removed: on an alarm the page now navigates straight to the incoming-call
+  screen, so there is nothing to answer twice. Keeping the markup would mean a
+  dead element, and the JS that drove it is gone too.
+-->
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const DEFAULT_ELDER_ID = "55555555-5555-4555-8555-555555555555";
+
+  // ---- state ------------------------------------------------------------
+  const S = {
+    running: false,
+    timer: null,
+    polls: 0,
+    alarms: 0,
+    fails: 0,
+    // mirrors firedForEpisode / lastWasAlarming in scripts/sensor-poller.mjs
+    firedForEpisode: false,
+    lastWasAlarming: false,
+    // False until the first successful reading of a session has been seen.
+    // The first reading only establishes where the door already is; see
+    // decideTrigger(). Without this a pre-existing alarm rang the elder the
+    // instant 開始監測 was pressed.
+    baselined: false,
+    lastAlarmAt: 0,
+    inFlight: false,
+    audioReady: false,
+    lastStatus: "IDLE",
+    // Per-episode identity: stamped when the alarm rises, cleared when the door
+    // closes, so the app's dedupe sees one stable id for one door-open event.
+    episodeId: null,
+    episodeStartedAt: null,
+  };
+
+  const cfg = () => ({
+    url: $("url").value.trim(),
+    intervalMs: Math.max(1000, Number($("interval").value || 2) * 1000),
+    timeoutMs: Math.max(1000, Number($("timeout").value || 4) * 1000),
+    cooldownMs: Math.max(10, Number($("cooldown").value || 60) * 1000),
+    elder: $("elder").value.trim() || "長者",
+    callMe: $("callme").checked,
+    myNumber: $("mynumber").value.trim(),
+    autoCall: $("autoCall").checked,
+    notifyRunner: $("notifyRunner").checked,
+    runnerUrl: $("runnerUrl").value.trim(),
+    runnerSecret: $("runnerSecret").value.trim(),
+    elderId: $("elderId").value.trim(),
+  });
+
+  // ---- logging ----------------------------------------------------------
+  const logEl = $("log");
+  function log(msg, kind) {
+    const t = new Date().toLocaleTimeString("zh-HK", { hour12: false });
+    const line = document.createElement("div");
+    line.innerHTML = `<b>${t}</b> ${msg}`;
+    if (kind === "alarm") line.style.color = "#fca5a5";
+    if (kind === "warn") line.style.color = "#fcd34d";
+    logEl.prepend(line);
+    while (logEl.childElementCount > 120) logEl.lastElementChild.remove();
+  }
+
+  // ---- settings persistence --------------------------------------------
+  const KEYS = ["url", "interval", "timeout", "cooldown", "elder",
+                "mynumber", "runnerUrl", "elderId"];
+  // Bumping this invalidates every saved config from an older build. Needed
+  // because defaults change between builds (the sensor moved from a fake host to
+  // the real device, and the runner URL/elder id were added), and a stale saved
+  // value silently wins over the new default on every load.
+  // v4: route both the sensor and the app through the page's own port, so the
+  // phone only needs one inbound port open. Also adds the runnerUrl/elderId
+  // fields that make the automatic call actually fire.
+  // v6: notify the app by default. Builds up to v5 saved it unchecked, so a
+  // phone that had used the old build silently kept "only rings the phone"
+  // behaviour — the alarm sounded but no call was ever placed.
+  const CFG_VERSION = 6;
+  const CFG_KEY = "doorAlert.cfg";
+
+  function saveCfg() {
+    try {
+      const o = { v: CFG_VERSION };
+      for (const k of KEYS) o[k] = $(k).value;
+      o.callme = $("callme").checked;
+      o.notifyRunner = $("notifyRunner").checked;
+      o.autoCall = $("autoCall").checked;
+      localStorage.setItem(CFG_KEY, JSON.stringify(o));
+    } catch (_) { /* private mode — settings just won't persist */ }
+  }
+
+  function loadCfg() {
+    try {
+      const raw = localStorage.getItem(CFG_KEY);
+      if (!raw) return;
+      const o = JSON.parse(raw);
+      // A config from an older build is discarded outright: its saved URL is the
+      // exact thing that broke, and merging it would reintroduce the bug.
+      if (o.v !== CFG_VERSION) {
+        localStorage.removeItem(CFG_KEY);
+        return;
+      }
+      for (const k of KEYS) if (typeof o[k] === "string") $(k).value = o[k];
+      $("callme").checked = !!o.callme;
+      $("notifyRunner").checked = !!o.notifyRunner;
+      // Defaults to on: absent means an older save, and the call is the point.
+      $("autoCall").checked = o.autoCall !== false;
+    } catch (_) {}
+  }
+
+  // ---- status pill ------------------------------------------------------
+  const STATE_ZH = { IDLE: "未開始", CALM: "門關住 · 正常", OPEN: "門開咗", ALARM: "⚠️ 警報！", OFFLINE: "連唔到感應器" };
+  function setStatus(state, sub, meta) {
+    const box = $("status");
+    box.dataset.state = state;
+    $("statusText").textContent = STATE_ZH[state] || state;
+    $("statusSub").textContent = sub || "";
+    $("statusMeta").textContent = meta || "—";
+    const dot = box.querySelector(".dot");
+    dot.classList.toggle("pulse", state === "ALARM");
+    if (state === "ALARM" && S.lastStatus !== "ALARM") {
+      try { navigator.vibrate([0, 300, 120, 300]); } catch (_) {}
+    }
+    S.lastStatus = state;
+  }
+  function bumpKpis() {
+    $("kPolls").textContent = S.polls;
+    $("kAlarms").textContent = S.alarms;
+    $("kFails").textContent = S.fails;
+  }
+
+  // ---- audio ------------------------------------------------------------
+  // Web Audio needs a user gesture before it can make noise. One "enable"
+  // tap unlocks it for the rest of the page's life.
+  let actx = null;
+  function enableAudio() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) { log("此瀏覽器唔支援音效", "warn"); return; }
+      actx = actx || new Ctx();
+      if (actx.state === "suspended") actx.resume();
+      // Play a silent blip so the unlock definitely takes effect.
+      const o = actx.createOscillator(), g = actx.createGain();
+      g.gain.value = 0.0001;
+      o.connect(g).connect(actx.destination);
+      o.start(); o.stop(actx.currentTime + 0.02);
+      S.audioReady = true;
+      $("audioWarn").hidden = true;
+      log("🔊 音效已啟用");
+    } catch (e) {
+      log(`音效啟用失敗：${e.message}`, "warn");
+    }
+  }
+
+  /** Two-tone siren burst, ~1.2s. No audio files needed. */
+  function beep() {
+    if (!actx || !S.audioReady) return;
+    const t0 = actx.currentTime;
+    for (let i = 0; i < 2; i++) {
+      const t = t0 + i * 0.55;
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = "square";
+      o.frequency.setValueAtTime(880, t);
+      o.frequency.setValueAtTime(620, t + 0.22);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.28, t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+      o.connect(g).connect(actx.destination);
+      o.start(t); o.stop(t + 0.5);
+    }
+  }
+
+  // ---- speech (best-effort, Chinese voice if the phone has one) ---------
+  function speak(zhText) {
+    try {
+      if (!("speechSynthesis" in window)) return;
+      const u = new SpeechSynthesisUtterance(zhText);
+      u.lang = "zh-HK";
+      u.rate = 0.95;
+      const v = speechSynthesis.getVoices().find((x) => /zh[-_]HK|zh[-_]CN|Chinese/i.test(x.lang + x.name));
+      if (v) u.voice = v;
+      speechSynthesis.speak(u);
+    } catch (_) {}
+  }
+
+  // ---- opening the call -------------------------------------------------
+  //
+  // There is no banner any more: on an alarm the page goes straight to the
+  // incoming-call screen, so all that remains is the navigation itself.
+
+  /**
+   * Open the simulated incoming call.
+   *
+   * This replaces the old `tel:` deep link. The elder is the one being called,
+   * so jumping to their own dialler was the wrong action entirely — the call
+   * has to arrive *at* the phone, which is what phone-call.html renders.
+   *
+   * Navigating is safe here: the alert page's monitor state lives in
+   * localStorage (CFG_KEY), so returning to this page restores the run.
+   */
+  function openCall() {
+    const c = cfg();
+    const q = new URLSearchParams({ trigger: "sensor" });
+    if (c.elderId) q.set("elder", c.elderId);
+    location.href = `/phone-call.html?${q}`;
+  }
+
+  // ---- reading + detector (mirrors decideTrigger) -----------------------
+  function parseReading(v) {
+    if (typeof v !== "object" || v === null) return null;
+    const { fsr, open, alarm } = v;
+    if (typeof fsr !== "number" || !Number.isFinite(fsr)) return null;
+    if (typeof open !== "boolean") return null;
+    if (typeof alarm !== "boolean") return null;
+    return { fsr, open, alarm };
+  }
+
+  // ---- diagnostics ------------------------------------------------------
+  const dbg = (id, text, cls) => {
+    const el = $(id);
+    if (!el) return;
+    el.textContent = text;
+    el.className = cls || "";
+  };
+  function showDiag(url, status, body, parsed, err) {
+    const t = new Date().toLocaleTimeString("zh-HK", { hour12: false });
+    dbg("dbgUrl", url || "—");
+    dbg("dbgAt", t);
+    dbg("dbgStatus", status === null ? "(no response)" : String(status),
+        status === 200 ? "ok" : "bad");
+    dbg("dbgBody", body === null ? "—" : body.slice(0, 160));
+    dbg("dbgParsed", parsed ? JSON.stringify(parsed) : "—", parsed ? "ok" : "meh");
+    dbg("dbgErr", err || "none", err ? "bad" : "ok");
+    dbg("dbgOrigin", location.origin);
+  }
+
+  /**
+   * Fetch one reading, keeping every detail needed to diagnose a failure.
+   * Returns { reading, diag } — reading is null on any failure, and diag always
+   * describes what actually happened on the wire.
+   */
+  async function fetchReading(c) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), c.timeoutMs);
+    // A bare path is resolved against the page's own origin, which is what makes
+    // "/sensor/data" work on any host the page happens to be served from.
+    const url = c.url;
+    try {
+      const res = await fetch(url, { signal: ctl.signal, cache: "no-store" });
+      const text = await res.text();
+      const parsed = res.ok ? parseReading(safeJson(text)) : null;
+      return {
+        reading: parsed,
+        diag: { url, status: res.status, body: text, parsed,
+                err: res.ok ? (parsed ? null : "body did not parse as a reading") : `HTTP ${res.status}` },
+      };
+    } catch (e) {
+      // AbortError means our own timeout fired — name it so it is not confused
+      // with the network being down.
+      const err = e.name === "AbortError" ? `timeout after ${c.timeoutMs}ms` : e.message;
+      return { reading: null, diag: { url, status: null, body: null, parsed: null, err } };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function safeJson(text) {
+    try { return JSON.parse(text); } catch { return null; }
+  }
+
+  /**
+   * Decides whether this reading should place a call.
+   *
+   * Two different things can be true when the page starts watching, and they
+   * must NOT be treated the same:
+   *
+   *   a) the door has just opened (`open: true`, `alarm: false`).
+   *      The sensor has not yet said this is dangerous — its own 15-second
+   *      timer is still running. Starting to watch here must not fire; the
+   *      alarm will arrive on a later poll if the door stays open. This is
+   *      the case the baseline sweep exists for: pressing 開始監測 seconds
+   *      after someone walks through the door should not ring them.
+   *
+   *   b) the sensor is ALREADY asserting `alarm: true`.
+   *      This is not a fresh edge we might have missed — it is a present,
+   *      ongoing emergency. The door has been open long enough that the
+   *      firmware itself declared it dangerous, and the elder needs a call
+   *      now. Suppressing this because "the alarm started before we looked"
+   *      is exactly wrong: it leaves the screen reading 警報 forever and
+   *      never rings anyone. So this fires, on the first poll.
+   *
+   * An unreachable sensor holds state rather than reading as "door closed",
+   * so a network blip cannot end an episode that is still in progress.
+   */
+  function decideTrigger(reading) {
+    if (reading === null) return { action: "none", reason: "unreachable" };
+
+    if (!S.baselined) {
+      S.baselined = true;
+      S.lastWasAlarming = !!reading.alarm;
+
+      // (a) Door open but not yet alarming: remember it and wait. The sensor
+      // owns the 15-second rule, so the alarm we want will arrive on its own.
+      if (!reading.alarm) {
+        S.firedForEpisode = false;
+        return { action: "none", reason: "baseline-open-not-alarming" };
+      }
+
+      // (b) Already alarming: fire immediately. Stamp the episode first so a
+      // retry or a duplicate poll reuses this id instead of minting a new one
+      // — the app dedupes on it, and a second id would ring the elder twice
+      // for one door.
+      S.firedForEpisode = true;
+      if (!S.episodeStartedAt) S.episodeStartedAt = new Date().toISOString();
+      S.episodeId = S.episodeId || `door:phone:${S.episodeStartedAt}`;
+      return {
+        action: "trigger",
+        reason: "baseline-already-alarming",
+        episodeId: S.episodeId,
+      };
+    }
+
+    if (!reading.alarm) {
+      // The door closed: end the episode so the next opening is a fresh one.
+      S.firedForEpisode = false;
+      S.lastWasAlarming = false;
+      S.episodeId = null;
+      S.episodeStartedAt = null;
+      return { action: "none", reason: "no-alarm" };
+    }
+    if (S.firedForEpisode) {
+      S.lastWasAlarming = true;
+      return { action: "none", reason: "unchanged-alarm" };
+    }
+    S.firedForEpisode = true;
+    S.lastWasAlarming = true;
+    // Stamp the episode the first time the alarm rises, then keep it.
+    if (!S.episodeStartedAt) S.episodeStartedAt = new Date().toISOString();
+    // One id per door-open episode, stamped at the rising edge and held for the
+    // whole episode. The app dedupes on this value, so a retry or a second
+    // notification for the same open door must reuse it rather than mint a new
+    // one — otherwise the elder gets rung again for the same event.
+    S.episodeId = S.episodeId || `door:phone:${S.episodeStartedAt}`;
+    return {
+      action: "trigger",
+      reason: "alarm-rising",
+      episodeId: S.episodeId,
+    };
+  }
+
+  // ---- the alarm action -------------------------------------------------
+  async function fireAlarm(episodeId) {
+    const now = Date.now();
+    if (now - S.lastAlarmAt < cfg().cooldownMs) {
+      log("警報重複，冷靜期內略過", "warn");
+      window.__elderLinkAlert?.events.push({ t: now, kind: "cooldown-skip" });
+      return;
+    }
+    window.__elderLinkAlert?.events.push({ t: now, kind: "fire", episodeId });
+    S.lastAlarmAt = now;
+    S.alarms++;
+    bumpKpis();
+
+    log(`🚨 警報！episode=${episodeId}`, "alarm");
+    beep();
+    setTimeout(beep, 1400);
+    setTimeout(beep, 2800);
+    try { navigator.vibrate([0, 400, 150, 400, 150, 600]); } catch (_) {}
+    speak("注意，門開咗超過十五秒，請立即查看。");
+
+    // Notify the app so a real check-in call is placed. Awaited rather than
+    // fired-and-forgotten: if it fails, the operator needs to see that on this
+    // screen at the moment it happens, not discover it later.
+    if (cfg().notifyRunner && cfg().runnerUrl) {
+      log("↗ 通知 App 打電話…");
+      const ok = await notifyRunner(episodeId);
+      if (!ok) {
+        log("⚠️ App 未收到通知 — 請自行打電話", "warn");
+        setStatus("ALARM", "App 通知失敗，請手動致電", "手動");
+      }
+    } else {
+      log("ℹ️ 未開啟自動通知 App — 只會喺手機響", "warn");
+    }
+
+    // Ring through to the incoming-call screen.
+    //
+    // This is unconditional on purpose. The old build only navigated when the
+    // page already had audio permission and showed a red "Answer the call"
+    // banner otherwise — which meant the alarm stopped at a screen the operator
+    // had to tap, and the care call never actually arrived. Straight through is
+    // what the alert is for: an unanswered banner is a missed emergency.
+    //
+    // Opening the call screen is also what unlocks sound on a fresh load, since
+    // the navigation is itself a user-visible state change on the call page.
+    log("📞 自動接通關懷來電…", "alarm");
+    setTimeout(openCall, 1500);
+  }
+
+  /** Hand the episode to the app so the real runner opens a work order. */
+  /**
+   * Hand the episode to the app, which places the actual call.
+   *
+   * This is the step that turns "my phone beeped" into "a call was made": the
+   * app owns consent gating, rate limiting, the alert row and the escalation
+   * chain, so the page deliberately does none of that itself.
+   *
+   * The episode id must be unique per door-open event. The app's UNIQUE
+   * constraint on external_id is what stops a repeat call if this fires twice,
+   * so the id is built from the alarm's start time, not the poll time.
+   */
+  async function notifyRunner(episodeId) {
+    const c = cfg();
+    if (!c.runnerUrl) return;
+    try {
+      const res = await fetch(c.runnerUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(c.runnerSecret ? { "x-sensor-secret": c.runnerSecret } : {}),
+        },
+        body: JSON.stringify({ elderId: c.elderId, externalId: episodeId }),
+      });
+      const text = await res.text();
+      let summary = text.slice(0, 120);
+      try {
+        const j = JSON.parse(text);
+        if (j.duplicate) summary = "已處理過（不重複致電）";
+        else if (j.ok) summary = `已開始致電 · ${j.outcome ?? "placed"}`;
+        else summary = j.error ?? summary;
+      } catch { /* non-JSON error body — show it raw */ }
+      log(`↗ App ${res.status}：${summary}`, res.ok ? "alarm" : "warn");
+      return res.ok;
+    } catch (e) {
+      log(`↗ 通知 App 失敗：${e.message}`, "warn");
+      return false;
+    }
+  }
+
+  // ---- poll loop (chained timeouts, not setInterval) --------------------
+  async function pollOnce() {
+    if (!S.running || S.inFlight) return;
+    const c = cfg();
+    if (!c.url) { setStatus("OFFLINE", "未填感應器網址"); return; }
+    S.inFlight = true;
+    try {
+      const { reading, diag } = await fetchReading(c);
+      showDiag(diag.url, diag.status, diag.body, diag.parsed, diag.err);
+      S.polls++;
+      const d = decideTrigger(reading);
+
+      if (reading === null) {
+        S.fails++;
+        setStatus("OFFLINE", "連唔到感應器", `失敗 ${S.fails}`);
+        if (S.fails === 1 || S.fails % 10 === 0) {
+          log(`讀取失敗：${diag.err || "unknown"}`, "warn");
+        }
+      } else if (reading.alarm) {
+        setStatus("ALARM", "門開超過 15 秒", `fsr ${reading.fsr}`);
+      } else if (reading.open) {
+        setStatus("OPEN", "門開咗，未夠 15 秒", `fsr ${reading.fsr}`);
+      } else {
+        setStatus("CALM", "一切正常", `fsr ${reading.fsr}`);
+      }
+      bumpKpis();
+
+      if (d.action === "trigger") await fireAlarm(d.episodeId);
+    } catch (e) {
+      log(`檢查出錯：${e.message}`, "warn");
+    } finally {
+      S.inFlight = false;
+      if (S.running) S.timer = setTimeout(pollOnce, cfg().intervalMs);
+    }
+  }
+
+  // ---- controls ---------------------------------------------------------
+  function start() {
+    if (S.running) return;
+    if (!$("url").value.trim()) { alert("請先填感應器網址"); return; }
+    saveCfg();
+    S.running = true;
+    S.polls = S.alarms = S.fails = 0;
+    S.firedForEpisode = false;
+    S.lastWasAlarming = false;
+    // Re-arm the baseline so this session's own first reading is the reference,
+    // rather than carrying over the previous session's door state.
+    S.baselined = false;
+    bumpKpis();
+    $("start").textContent = "停止監測";
+    $("start").style.background = "#b91c1c";
+    setStatus("OFFLINE", "開始檢查中…");
+    log(`▶ 開始監測 ${$("url").value.trim()}，每 ${$("interval").value} 秒一次`);
+    if (!S.audioReady) $("audioWarn").hidden = false;
+    if (!actx) log("提示：撳「啟用音效」先會響聲", "warn");
+    pollOnce();
+  }
+
+  function stop() {
+    S.running = false;
+    if (S.timer) clearTimeout(S.timer);
+    S.timer = null;
+    $("start").textContent = "開始監測";
+    $("start").style.background = "#3b82f6";
+    setStatus("IDLE", "已停止");
+    log("■ 已停止監測");
+  }
+
+  $("start").addEventListener("click", () => (S.running ? stop() : start()));
+
+  $("enableAudio").addEventListener("click", enableAudio);
+  document.addEventListener("touchstart", () => { if (!S.audioReady) enableAudio(); }, { once: true });
+
+  // One-shot fetch that works even while monitoring is stopped, so the network
+  // path can be tested independently of the poll loop.
+  $("dbgOnce").addEventListener("click", async () => {
+    const c = cfg();
+    dbg("dbgBody", "fetching…", "meh");
+    const { diag } = await fetchReading(c);
+    showDiag(diag.url, diag.status, diag.body, diag.parsed, diag.err);
+    log(diag.parsed ? `單次測試成功：${JSON.stringify(diag.parsed)}` : `單次測試失敗：${diag.err}`, diag.parsed ? undefined : "warn");
+  });
+
+  $("testAlert").addEventListener("click", () => {
+    log("測試警報");
+    beep();
+    try { navigator.vibrate([0, 400, 150, 400]); } catch (_) {}
+    speak("測試警報，一切正常。");
+    log("（如果冇聲，撳「啟用音效」先）", "warn");
+  });
+
+  // A one-tap way to preview the care call without waiting for a real alarm.
+  // Ringing through is the only honest way to check that the audio, the script
+  // and the speech recognition all work on this particular handset.
+  $("testCall").addEventListener("click", () => {
+    log("📞 測試關懷來電…");
+    openCall();
+  });
+
+  ["url", "interval", "timeout", "cooldown", "elder", "mynumber",
+   "runnerUrl", "elderId"].forEach((k) => $(k).addEventListener("change", saveCfg));
+  ["callme", "notifyRunner", "autoCall"].forEach((k) =>
+    $(k).addEventListener("change", () => {
+      saveCfg();
+      $("runnerFields").hidden = !$("notifyRunner").checked;
+    }));
+
+  // Re-poll immediately when the page is brought back to the foreground,
+  // because background tabs get their timers throttled or frozen.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && S.running) {
+      if (S.timer) clearTimeout(S.timer);
+      pollOnce();
+    }
+  });
+  window.addEventListener("online", () => log("網絡恢復"));
+  window.addEventListener("offline", () => log("網絡中斷", "warn"));
+
+  // ---- boot -------------------------------------------------------------
+  loadCfg();
+  $("runnerFields").hidden = !$("notifyRunner").checked;
+  setStatus("IDLE", "撳下面開始監測");
+  $("statusMeta").textContent = cfg().elder;
+  if (speechSynthesis) speechSynthesis.getVoices(); // warm the voice list
+  log("頁面載入完成");
+  log("記得：手機要同感應器同一個 Wi-Fi");
+
+  // A small read-only window onto the state machine, for the automated checks
+  // in scripts/ and for debugging on the phone itself. It exposes state and
+  // the decisions taken, never a way to change them, so what the tests observe
+  // is the same code path the elder's phone runs.
+  window.__elderLinkAlert = {
+    S,
+    cfg,
+    decideTrigger,
+    events: [],
+  };
+})();
+</script>
+</body>
+</html>
