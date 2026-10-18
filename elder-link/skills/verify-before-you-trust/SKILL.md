@@ -5,9 +5,11 @@ description: >
   or hardware integration "works". It forces discriminating verification: prove a
   test can fail before trusting it, trace output over time instead of snapshotting,
   use realistic fixtures, audit your own test harness for destructive side effects,
-  and triage environment faults separately from code defects. Written for agents
-  that can execute — it trades reassurance for evidence.
-version: 1.0.0
+  and triage environment faults separately from code defects. Also covers prompting
+  for verifiability — turning a vague request into one with an acceptance test and
+  a negative scope. Written for agents that can execute — it trades reassurance for
+  evidence.
+version: 1.1.0
 license: MIT
 ---
 
@@ -181,6 +183,33 @@ Good tests are also honest about what they cover. If a path cannot be tested
 
 > Fake-device audio does not reproduce the clip faithfully. The user's next live
 > attempt is the real confirmation.
+
+---
+
+## Prompting for verifiability (what to ask the human for, if they didn't say it)
+
+A verification-first agent is only as good as the task definition it receives. If
+an instruction lacks an acceptance test, **ask for one before writing code** — do
+not infer "done" from the sentence.
+
+Five elements make a task verifiable. If any are missing, ask one short question
+rather than guessing:
+
+| Element | Question to ask | Why its absence hurts |
+| --- | --- | --- |
+| **Target** | Which file/runtime/device exactly? | Wrong artefact gets fixed; the real one stays broken |
+| **Observation** | What do you see, and where do you see it? | A summary ("it doesn't work") hides which layer is wrong (§Rule 6) |
+| **Acceptance test** | What command/assertion proves it fixed? | "Done" becomes a judgement call, usually resolved by confidence |
+| **Negative scope** | What must not change? | Debugging one symptom refactors three unrelated files |
+| **Stop condition** | When should I stop and ask instead of working around it? | Platform limits get papered over with misleading claims |
+
+Write the acceptance test into the repo as a named script before fixing anything.
+If you cannot express success as an assertion, you do not yet know what success is.
+
+Anti-pattern to refuse: a prompt that specifies the *solution* but not the
+*evidence* ("use requestFullscreen with navigationUI: hide"). It instructs the
+agent to implement a hypothesis. Ask instead what observable state should be true
+afterwards, then test that state.
 
 ---
 
